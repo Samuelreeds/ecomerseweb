@@ -103,24 +103,25 @@ export default function Checkout() {
     }
     
     // TELEGRAM REQUIREMENT CHECK
-    // Evaluates if the user's account is connected via Telegram by checking metadata and email structures
     const isTelegramConnected = user?.app_metadata?.providers?.includes('telegram') || 
                                 user?.user_metadata?.telegram_id || 
                                 user?.email?.includes('telegram');
 
-    if (!user || (storeSettings.require_telegram_checkout && !isTelegramConnected)) {
+    // FIX 1: Allow guests to proceed UNLESS Telegram is strictly required
+    if (storeSettings.require_telegram_checkout && (!user || !isTelegramConnected)) {
       setShowAuthModal(true); 
       return;
     }
 
     setPlacing(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      // FIX 2: Create a strict variable to ensure invalid local sessions don't crash the database
+      const finalUserId = (user && user.id) ? user.id : null;
       
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert({
-          user_id: session?.user?.id || null,
+          user_id: finalUserId, // Uses the strict null variable
           status: 'pending',
           subtotal: totals.subtotal,
           shipping_fee: activeShippingFee, 
@@ -141,7 +142,6 @@ export default function Checkout() {
 
       // Carefully format the items to match database columns
       const orderItems = items.map((/** @type {any} */ i) => {
-        // Fallback: If cart mutated the ID (e.g. uuid-red-L), split it to get just the valid database UUID.
         const cleanProductId = i.product_id || (typeof i.id === 'string' && i.id.includes('-') && i.id.length > 36 ? i.id.substring(0, 36) : i.id);
 
         return {
@@ -156,8 +156,6 @@ export default function Checkout() {
         };
       });
 
-      // Crucial Fix: Appending .select() forces Supabase to return the row. 
-      // If RLS silently blocks the insert, it will throw an explicit error now.
       const { data: insertedItems, error: itemsError } = await supabase
         .from('order_items')
         .insert(orderItems)
@@ -165,7 +163,6 @@ export default function Checkout() {
 
       if (itemsError) throw itemsError;
       
-      // If no items were returned, the database security policies blocked the save.
       if (!insertedItems || insertedItems.length === 0) {
         throw new Error("Security Policy Error: Order was created, but items were blocked by 'order_items' table RLS policies.");
       }
@@ -185,11 +182,12 @@ export default function Checkout() {
     setUploading(true);
     
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      // Using finalUserId logic here as well for safety
+      const finalUserId = (user && user.id) ? user.id : 'guest';
       
       const fileExt = form.transactionImage.name.split('.').pop();
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const filePath = `${session?.user?.id || 'guest'}/${fileName}`;
+      const filePath = `${finalUserId}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('receipts')
@@ -199,7 +197,6 @@ export default function Checkout() {
 
       const { data: publicUrlData } = supabase.storage.from('receipts').getPublicUrl(filePath);
       
-      // Update order with the screenshot URL for your Telegram bot to use
       const { error: updateError } = await supabase
         .from('orders')
         .update({
@@ -224,7 +221,6 @@ export default function Checkout() {
     return (
       <div className="min-h-[80vh] flex flex-col items-center justify-center px-4 py-12 bg-background">
         <div className="max-w-md w-full border hairline p-8 md:p-12 text-center relative overflow-hidden bg-white shadow-sm">
-          {/* Subtle top accent line */}
           <div className="absolute top-0 left-0 w-full h-1 bg-foreground"></div>
           
           <div className="w-16 h-16 border hairline bg-background rounded-full flex items-center justify-center mx-auto mb-8 shadow-sm">
@@ -344,7 +340,6 @@ export default function Checkout() {
             <div className="space-y-4 max-h-[40vh] overflow-y-auto no-scrollbar pt-2 pr-2">
               {items.map((/** @type {any} */ i) => (
                 <div key={i.key} className="flex gap-4">
-                  {/* CHANGED: Quantity Badge UI Fixed */}
                   <div className="relative shrink-0 mt-1">
                     <div className="w-14 h-16 bg-muted overflow-hidden border hairline">
                       {i.image && <Image src={i.image} alt={i.name} className="w-full h-full object-cover" fittingType="fill" />}
@@ -427,7 +422,6 @@ export default function Checkout() {
             <div className="border hairline bg-muted/10 p-6 flex flex-col items-center mb-6">
               <p className="font-mono text-sm text-foreground mb-4 uppercase tracking-wider font-semibold">Total: ${activeTotal.toFixed(2)}</p>
               <div className="w-48 h-48 bg-white p-2 border hairline mb-4">
-                {/* Static Placeholder QR Code */}
                 <img 
                   src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=MONOLITHIC_ATELIER_KHQR_PLACEHOLDER" 
                   alt="Company KHQR" 
@@ -437,7 +431,6 @@ export default function Checkout() {
               <p className="label-mono text-muted-foreground text-[10px] text-center">Scan with any Cambodia banking app (KHQR) to transfer.</p>
             </div>
 
-            {/* Added Screenshot Upload Field */}
             <div className="space-y-2 mb-6">
               <label className="label-mono text-muted-foreground text-[10px] uppercase">Upload Payment Screenshot</label>
               <div className="relative">
