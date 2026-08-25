@@ -1,21 +1,26 @@
+// @ts-nocheck
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { SlidersHorizontal, X, ChevronDown, Check } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useLocalization } from "@/lib/localization-context";
 import ProductCard from "@/components/store/ProductCard";
 import Reveal from "@/components/store/Reveal";
 
+// Added labelKh for automatic translation in the dropdown
 const SORTS = [
-  { value: "newest", label: "Newest" },
-  { value: "popular", label: "Popular" },
-  { value: "price_asc", label: "Lowest Price" },
-  { value: "price_desc", label: "Highest Price" },
-  { value: "name_asc", label: "Name A-Z" },
-  { value: "name_desc", label: "Name Z-A" },
+  { value: "newest", label: "Newest", labelKh: "ថ្មីបំផុត" },
+  { value: "popular", label: "Popular", labelKh: "ពេញនិយម" },
+  { value: "price_asc", label: "Lowest Price", labelKh: "តម្លៃទាបបំផុត" },
+  { value: "price_desc", label: "Highest Price", labelKh: "តម្លៃខ្ពស់បំផុត" },
+  { value: "name_asc", label: "Name A-Z", labelKh: "ឈ្មោះ A-Z" },
+  { value: "name_desc", label: "Name Z-A", labelKh: "ឈ្មោះ Z-A" },
 ];
 
 export default function Shop() {
   const [params, setParams] = useSearchParams();
+  const { t } = useLocalization(); // <-- Hooked into global localization
+
   const [all, setAll] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -33,7 +38,6 @@ export default function Shop() {
   };
   const sort = params.get("sort") || "newest";
 
-  // Dynamic filter states
   const [categories, setCategories] = useState(/** @type {any[]} */ ([]));
   const [colors, setColors] = useState(/** @type {any[]} */ ([]));
   const [sizes, setSizes] = useState(/** @type {any[]} */ ([]));
@@ -58,9 +62,7 @@ export default function Shop() {
           .order("created_at", { ascending: false })
           .limit(200);
 
-        if (prodData) {
-          setAll(prodData);
-        }
+        if (prodData) setAll(prodData);
 
         const [catData, colorData, sizeData] = await Promise.all([
           fetchSafe("categories"),
@@ -102,7 +104,6 @@ export default function Shop() {
   const filtered = useMemo(() => {
     let r = [...all];
     
-    // FIXED: Now correctly checks the "category" column string instead of category_name/id
     if (filters.category.length) {
       r = r.filter((/** @type {any} */ p) => 
         filters.category.some((/** @type {string} */ c) => 
@@ -165,34 +166,44 @@ export default function Shop() {
 
   const FilterPanel = () => (
     <div>
-      {/* Dynamic Category Filters */}
       {categories.length > 0 && (
-        <FilterSection title="Category">
+        <FilterSection title={t("Category", "ប្រភេទ")}>
           {categories.map((/** @type {any} */ c) => (
-            <CheckRow key={c.id} active={filters.category.includes(c.id) || filters.category.includes(c.name)} onClick={() => toggleMulti("category", c.name)} label={c.name} />
+            <CheckRow 
+              key={c.id} 
+              active={filters.category.includes(c.id) || filters.category.includes(c.name)} 
+              onClick={() => toggleMulti("category", c.name)} 
+              label={t(c.name, c.name_khmer || c.name)} 
+            />
           ))}
         </FilterSection>
       )}
 
-      {/* Dynamic Color Filters */}
       {colors.length > 0 && (
-        <FilterSection title="Color">
+        <FilterSection title={t("Color", "ពណ៌")}>
           <div className="flex flex-wrap gap-2">
             {colors.map((/** @type {any} */ c) => (
-              <button key={c.id || c.name} onClick={() => toggleMulti("color", c.name)} className={`px-3 py-1.5 border hairline label-mono text-[10px] ${filters.color.includes(c.name) ? "bg-foreground text-background" : ""}`}>
-                {c.name}
+              <button 
+                key={c.id || c.name} 
+                onClick={() => toggleMulti("color", c.name)} 
+                className={`px-3 py-1.5 border hairline label-mono text-[10px] ${filters.color.includes(c.name) ? "bg-foreground text-background" : ""}`}
+              >
+                {t(c.name, c.name_khmer || c.name)}
               </button>
             ))}
           </div>
         </FilterSection>
       )}
 
-      {/* Dynamic Size Filters */}
       {sizes.length > 0 && (
-        <FilterSection title="Size">
+        <FilterSection title={t("Size", "ទំហំ")}>
           <div className="flex flex-wrap gap-2">
             {sizes.map((/** @type {any} */ s) => (
-              <button key={s.id || s.name} onClick={() => toggleMulti("size", s.name)} className={`px-3 py-1.5 border hairline label-mono text-[10px] ${filters.size.includes(s.name) ? "bg-foreground text-background" : ""}`}>
+              <button 
+                key={s.id || s.name} 
+                onClick={() => toggleMulti("size", s.name)} 
+                className={`px-3 py-1.5 border hairline label-mono text-[10px] ${filters.size.includes(s.name) ? "bg-foreground text-background" : ""}`}
+              >
                 {s.name}
               </button>
             ))}
@@ -200,20 +211,22 @@ export default function Shop() {
         </FilterSection>
       )}
 
-      <FilterSection title="Price Range">
+      <FilterSection title={t("Price Range", "ជួរតម្លៃ")}>
         <div className="flex items-center gap-2">
-          <input type="number" placeholder="Min" defaultValue={filters.minPrice ?? ""} onBlur={(e) => setSingle("minPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none" />
+          <input type="number" placeholder={t("Min", "អប្បបរមា")} defaultValue={filters.minPrice ?? ""} onBlur={(e) => setSingle("minPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none" />
           <span className="text-muted-foreground">—</span>
-          <input type="number" placeholder="Max" defaultValue={filters.maxPrice ?? ""} onBlur={(e) => setSingle("maxPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none" />
+          <input type="number" placeholder={t("Max", "អតិបរមា")} defaultValue={filters.maxPrice ?? ""} onBlur={(e) => setSingle("maxPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none" />
         </div>
       </FilterSection>
       
-      <FilterSection title="Offers">
-        <CheckRow active={filters.discount} onClick={() => setSingle("discount", filters.discount ? "" : "1")} label="On Sale Only" />
+      <FilterSection title={t("Offers", "ការផ្តល់ជូន")}>
+        <CheckRow active={filters.discount} onClick={() => setSingle("discount", filters.discount ? "" : "1")} label={t("On Sale Only", "កំពុងបញ្ចុះតម្លៃប៉ុណ្ណោះ")} />
       </FilterSection>
       
       {activeCount > 0 && (
-        <button onClick={clearAll} className="label-mono text-muted-foreground hover:text-foreground mt-4 underline underline-offset-4">Clear all filters</button>
+        <button onClick={clearAll} className="label-mono text-muted-foreground hover:text-foreground mt-4 underline underline-offset-4">
+          {t("Clear all filters", "លុបចោលតម្រងទាំងអស់")}
+        </button>
       )}
     </div>
   );
@@ -223,9 +236,12 @@ export default function Shop() {
       {/* Header */}
       <div className="border-b hairline">
         <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-10 md:py-14">
-          <p className="label-mono text-muted-foreground mb-3">— The Collection</p>
-          <h1 className="font-display text-5xl md:text-7xl tracking-[-0.05em]">Shop.</h1>
-          <p className="text-muted-foreground mt-3 text-sm">{filtered.length} objects{activeCount > 0 ? ` · ${activeCount} filter${activeCount > 1 ? "s" : ""} active` : ""}</p>
+          <p className="label-mono text-muted-foreground mb-3">— {t("The Collection", "បណ្តុំផលិតផល")}</p>
+          <h1 className="font-display text-5xl md:text-7xl tracking-[-0.05em]">{t("Shop.", "ទិញទំនិញ.")}</h1>
+          <p className="text-muted-foreground mt-3 text-sm">
+            {filtered.length} {t("objects", "វត្ថុ")}
+            {activeCount > 0 ? ` · ${activeCount} ${t("filters active", "តម្រងសកម្ម")}` : ""}
+          </p>
         </div>
       </div>
 
@@ -239,16 +255,18 @@ export default function Shop() {
           {/* Toolbar */}
           <div className="flex items-center justify-between mb-8 pb-4 border-b hairline">
             <button onClick={() => setFilterOpen(true)} className="flex items-center gap-2 label-mono md:hidden">
-              <SlidersHorizontal size={14} /> Filters {activeCount > 0 && `(${activeCount})`}
+              <SlidersHorizontal size={14} /> {t("Filters", "តម្រង")} {activeCount > 0 && `(${activeCount})`}
             </button>
-            <span className="hidden md:block label-mono text-muted-foreground">Showing {paged.length} of {filtered.length}</span>
+            <span className="hidden md:block label-mono text-muted-foreground">
+              {t("Showing", "បង្ហាញ")} {paged.length} {t("of", "នៃ")} {filtered.length}
+            </span>
             <div className="relative">
               <select
                 value={sort}
                 onChange={(e) => { setSingle("sort", e.target.value); }}
                 className="appearance-none border hairline pl-3 pr-9 py-2 label-mono bg-background outline-none cursor-pointer"
               >
-                {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {SORTS.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.labelKh)}</option>)}
               </select>
               <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -260,9 +278,9 @@ export default function Shop() {
             </div>
           ) : paged.length === 0 ? (
             <div className="py-24 text-center">
-              <p className="font-display text-3xl tracking-[-0.04em]">No objects found.</p>
-              <p className="text-muted-foreground mt-2 text-sm">Adjust your filters to broaden the collection.</p>
-              {activeCount > 0 && <button onClick={clearAll} className="label-mono underline underline-offset-4 mt-4">Clear filters</button>}
+              <p className="font-display text-3xl tracking-[-0.04em]">{t("No objects found.", "រកមិនឃើញវត្ថុទេ។")}</p>
+              <p className="text-muted-foreground mt-2 text-sm">{t("Adjust your filters to broaden the collection.", "កែសម្រួលតម្រងរបស់អ្នកដើម្បីពង្រីកការស្វែងរក។")}</p>
+              {activeCount > 0 && <button onClick={clearAll} className="label-mono underline underline-offset-4 mt-4">{t("Clear filters", "លុបចោលតម្រង")}</button>}
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-x-5 gap-y-10">
@@ -277,7 +295,7 @@ export default function Shop() {
           {!loading && paged.length < filtered.length && (
             <div className="flex justify-center mt-14">
               <button onClick={() => setPage((p) => p + 1)} className="border hairline px-8 py-4 label-mono hover:bg-foreground hover:text-background transition-colors">
-                Load More ({filtered.length - paged.length})
+                {t("Load More", "ផ្ទុកបន្ថែម")} ({filtered.length - paged.length})
               </button>
             </div>
           )}
@@ -290,11 +308,13 @@ export default function Shop() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setFilterOpen(false)} />
           <div className="absolute left-0 top-0 bottom-0 w-[85%] max-w-sm bg-background p-6 overflow-y-auto inertia-up">
             <div className="flex items-center justify-between mb-6">
-              <span className="font-display text-lg tracking-[-0.04em]">Filters</span>
+              <span className="font-display text-lg tracking-[-0.04em]">{t("Filters", "តម្រង")}</span>
               <button onClick={() => setFilterOpen(false)}><X size={18} /></button>
             </div>
             <FilterPanel />
-            <button onClick={() => setFilterOpen(false)} className="w-full bg-foreground text-background py-4 label-mono mt-6">Show {filtered.length} Results</button>
+            <button onClick={() => setFilterOpen(false)} className="w-full bg-foreground text-background py-4 label-mono mt-6">
+              {t("Show", "បង្ហាញ")} {filtered.length} {t("Results", "លទ្ធផល")}
+            </button>
           </div>
         </div>
       )}

@@ -66,10 +66,10 @@ export default function Footer() {
         <div>
           <h4 className="label-mono text-[10px] text-slate-500 tracking-widest uppercase mb-6">Legal</h4>
           <ul className="space-y-4 text-sm text-slate-300">
-            <li><Link to="/privacy" className="hover:text-white transition-colors">Privacy</Link></li>
-            <li><Link to="/terms" className="hover:text-white transition-colors">Terms</Link></li>
-            <li><Link to="/shipping" className="hover:text-white transition-colors">Shipping</Link></li>
-            <li><Link to="/returns" className="hover:text-white transition-colors">Returns</Link></li>
+            <li><Link to="/legal#privacy" className="hover:text-white transition-colors">Privacy</Link></li>
+            <li><Link to="/legal#terms" className="hover:text-white transition-colors">Terms</Link></li>
+            <li><Link to="/legal#shipping" className="hover:text-white transition-colors">Shipping</Link></li>
+            <li><Link to="/legal#returns" className="hover:text-white transition-colors">Returns</Link></li>
           </ul>
         </div>
       </div>

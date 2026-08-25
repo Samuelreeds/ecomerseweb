@@ -6,6 +6,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider } from '@/lib/AuthContext';
 import ScrollToTop from './components/ScrollToTop';
 import { LocalizationProvider } from "./lib/localization-context";
+import Legal from './pages/Legal';
 
 // --- STOREFRONT IMPORTS ---
 import StoreLayout from '@/components/store/StoreLayout';
@@ -58,6 +59,8 @@ export default function App() {
               <Route path="orders" element={<AccountOrders />} />
               <Route path="addresses" element={<AccountAddresses />} />
             </Route>
+
+            <Route path="/legal" element={<Legal />} />
 
             {/* 404 Fallback */}
             <Route path="*" element={<PageNotFound />} />
