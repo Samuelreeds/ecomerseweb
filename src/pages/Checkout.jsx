@@ -77,7 +77,7 @@ export default function Checkout() {
   const validDelivery = !!(form.name && form.phone && form.address && form.province);
   const validPayment = !!form.transactionImage;
 
-  // --- DYNAMIC CALCULATIONS ---
+  // --- DYNAMIC CALCULATIONS (Strictly for UI Display now - Server handles actual charge) ---
   const activeShippingFee = form.province 
     ? (form.province.trim().toLowerCase() === "phnom penh" 
         ? storeSettings.shipping_pp_price 
@@ -96,18 +96,16 @@ export default function Checkout() {
     navigate("/shop"); 
   };
 
-  // STEP 1: Create Order in Database first
+  // STEP 1: Secure Order Creation via RPC
   const handlePlaceOrderClick = async () => {
     if (cartExpiresAt && Date.now() > parseInt(cartExpiresAt, 10)) {
       setShowCartExpiredModal(true); return; 
     }
     
-    // TELEGRAM REQUIREMENT CHECK
     const isTelegramConnected = user?.app_metadata?.providers?.includes('telegram') || 
                                 user?.user_metadata?.telegram_id || 
                                 user?.email?.includes('telegram');
 
-    // FIX 1: Allow guests to proceed UNLESS Telegram is strictly required
     if (storeSettings.require_telegram_checkout && (!user || !isTelegramConnected)) {
       setShowAuthModal(true); 
       return;
@@ -115,59 +113,34 @@ export default function Checkout() {
 
     setPlacing(true);
     try {
-      // FIX 2: Create a strict variable to ensure invalid local sessions don't crash the database
       const finalUserId = (user && user.id) ? user.id : null;
       
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          user_id: finalUserId, // Uses the strict null variable
-          status: 'pending',
-          subtotal: totals.subtotal,
-          shipping_fee: activeShippingFee, 
-          tax: activeTaxAmount,
-          grand_total: activeTotal,
-          payment_method: 'qr',
-          shipping_address: {
-            name: form.name,
-            phone: form.phone,
-            address: form.address,
-            province: form.province
-          }
-        })
-        .select()
-        .single();
-
-      if (orderError) throw orderError;
-
-      // Carefully format the items to match database columns
-      const orderItems = items.map((/** @type {any} */ i) => {
+      // Clean up the item payload to match the strict JSONB structure the RPC expects
+      const mappedItems = items.map((/** @type {any} */ i) => {
         const cleanProductId = i.product_id || (typeof i.id === 'string' && i.id.includes('-') && i.id.length > 36 ? i.id.substring(0, 36) : i.id);
-
         return {
-          order_id: orderData.id,
           product_id: cleanProductId,
-          product_name: i.name,
-          unit_price: i.price,
           quantity: i.quantity,
-          selected_size: i.size,
-          selected_color: i.color,
-          total_price: i.price * i.quantity
+          selected_size: i.size || null,
+          selected_color: i.color || null
         };
       });
 
-      const { data: insertedItems, error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems)
-        .select();
+      // Execute Secure Server-Side Order Generation
+      const { data: orderId, error: rpcError } = await supabase.rpc('create_checkout_order', {
+        p_user_id: finalUserId,
+        p_name: form.name,
+        p_phone: form.phone,
+        p_address: form.address,
+        p_province: form.province,
+        p_items: mappedItems
+      });
 
-      if (itemsError) throw itemsError;
-      
-      if (!insertedItems || insertedItems.length === 0) {
-        throw new Error("Security Policy Error: Order was created, but items were blocked by 'order_items' table RLS policies.");
+      if (rpcError) {
+        throw new Error(rpcError.message);
       }
 
-      setCreatedOrder(orderData);
+      setCreatedOrder({ id: orderId });
       setShowQRPopup(true);
     } catch (/** @type {any} */ e) {
       console.error("Order Creation Error:", e);
@@ -182,7 +155,6 @@ export default function Checkout() {
     setUploading(true);
     
     try {
-      // Using finalUserId logic here as well for safety
       const finalUserId = (user && user.id) ? user.id : 'guest';
       
       const fileExt = form.transactionImage.name.split('.').pop();

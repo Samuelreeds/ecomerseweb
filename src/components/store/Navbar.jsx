@@ -1,28 +1,30 @@
 // @ts-nocheck
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, ShoppingBag, Heart, User, Menu, X, ChevronDown } from "lucide-react";
+import { Search, ShoppingBag, Heart, User, Menu, X, ChevronDown, Globe, Coins } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import { useAuth } from "@/lib/AuthContext";
+import { useLocalization } from "@/lib/localization-context";
 import { supabase } from "@/lib/supabase";
 import { useQuery } from '@tanstack/react-query';
 
 const NAV = [
-  { label: "Home", path: "/" },
-  { label: "Shop", path: "/shop" },
-  { label: "Categories", path: "/shop?view=categories" },
-  { label: "About", path: "/about" },
-  { label: "Contact", path: "/contact" },
+  { label: "Home", labelKh: "ទំព័រដើម", path: "/" },
+  { label: "Shop", labelKh: "ទិញទំនិញ", path: "/shop" },
+  { label: "Categories", labelKh: "ប្រភេទ", path: "/shop?view=categories" },
+  { label: "About", labelKh: "អំពីយើង", path: "/about" },
+  { label: "Contact", labelKh: "ទំនាក់ទំនង", path: "/contact" },
 ];
 
 export default function Navbar({ onOpenSearch }) {
   const { totals, openDrawer, wishlist } = useCart();
   const { user } = useAuth();
+  const { language, setLanguage, currency, setCurrency, t } = useLocalization();
+  
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [mobileCatOpen, setMobileCatOpen] = useState(false); // Tracks Mobile Tap State
+  const [mobileCatOpen, setMobileCatOpen] = useState(false); 
   const navigate = useNavigate();
 
-  // Fetch live categories for the dropdowns
   const { data: categories = [] } = useQuery({
     queryKey: ['navbar-categories'],
     queryFn: async () => {
@@ -53,7 +55,8 @@ export default function Navbar({ onOpenSearch }) {
             </button>
             <nav className="hidden md:flex items-center gap-7 h-full">
               {NAV.slice(0, 3).map((n) => {
-                // --- CATEGORIES DESKTOP DROPDOWN ---
+                const displayName = t(n.label, n.labelKh);
+                
                 if (n.label === "Categories") {
                   return (
                     <div key={n.label} className="relative group h-full flex items-center">
@@ -61,7 +64,7 @@ export default function Navbar({ onOpenSearch }) {
                         to={n.path}
                         className="label-mono text-foreground/80 group-hover:text-foreground transition-colors flex items-center gap-1.5"
                       >
-                        {n.label}
+                        {displayName}
                         <ChevronDown size={14} className="opacity-60 group-hover:rotate-180 transition-transform duration-300" />
                       </Link>
                       
@@ -75,7 +78,7 @@ export default function Navbar({ onOpenSearch }) {
                                 to={`/shop?category=${encodeURIComponent(cat.title || cat.name)}`}
                                 className="px-5 py-3.5 label-mono text-[11px] text-foreground/70 hover:text-foreground hover:bg-muted transition-colors border-b hairline last:border-b-0 uppercase tracking-widest"
                               >
-                                {cat.title || cat.name}
+                                {t(cat.title || cat.name, cat.name_khmer || cat.name)}
                               </Link>
                             ))
                           ) : (
@@ -87,21 +90,20 @@ export default function Navbar({ onOpenSearch }) {
                   );
                 }
                 
-                // Normal Links
                 return (
                   <Link
                     key={n.label}
                     to={n.path}
                     className="label-mono text-foreground/80 hover:text-foreground transition-colors"
                   >
-                    {n.label}
+                    {displayName}
                   </Link>
                 );
               })}
             </nav>
           </div>
 
-          {/* center — NOIR MTD Logo (Image Only) */}
+          {/* center — NOIR MTD Logo */}
           <Link 
             to="/" 
             className="flex items-center justify-center leading-none hover:opacity-80 transition-opacity"
@@ -115,17 +117,36 @@ export default function Navbar({ onOpenSearch }) {
 
           {/* right — actions */}
           <div className="flex items-center justify-end gap-4 md:gap-5 h-full">
-            <nav className="hidden md:flex items-center gap-7 mr-2 h-full">
+            <nav className="hidden md:flex items-center gap-7 h-full">
               {NAV.slice(3).map((n) => (
                 <Link
                   key={n.label}
                   to={n.path}
                   className="label-mono text-foreground/80 hover:text-foreground transition-colors"
                 >
-                  {n.label}
+                  {t(n.label, n.labelKh)}
                 </Link>
               ))}
             </nav>
+
+            {/* --- LOCALIZATION TOGGLES (DESKTOP) --- */}
+            <div className="hidden md:flex items-center gap-3 ml-2 mr-2 pr-4 border-r hairline h-6">
+              <button 
+                onClick={() => setLanguage(l => l === 'EN' ? 'KH' : 'EN')} 
+                className="label-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 w-9"
+                title="Switch Language"
+              >
+                {language}
+              </button>
+              <button 
+                onClick={() => setCurrency(c => c === 'USD' ? 'KHR' : 'USD')} 
+                className="label-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 w-9"
+                title="Switch Currency"
+              >
+                {currency}
+              </button>
+            </div>
+
             <button onClick={onOpenSearch} aria-label="Search" className="hover:opacity-60 transition-opacity">
               <Search size={18} strokeWidth={1.5} />
             </button>
@@ -159,7 +180,6 @@ export default function Navbar({ onOpenSearch }) {
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <div className="absolute left-0 top-0 bottom-0 w-[85%] max-w-xs bg-background p-6 flex flex-col inertia-up overflow-y-auto">
             <div className="flex items-center justify-between mb-10 shrink-0">
-              {/* Mobile Menu Logo */}
               <div className="flex items-center">
                 <img src="/logo.png" alt="NOIR MTD Logo" className="h-6 w-auto object-contain" />
               </div>
@@ -168,28 +188,27 @@ export default function Navbar({ onOpenSearch }) {
             
             <nav className="flex flex-col gap-2 flex-1">
               {NAV.map((n, i) => {
+                const displayName = t(n.label, n.labelKh);
                 
-                // --- CATEGORIES MOBILE LOGIC ---
                 if (n.label === "Categories") {
                   return (
                     <div key={n.label} className="flex flex-col w-full">
                       <button
                         onClick={() => {
                           if (!mobileCatOpen) {
-                            setMobileCatOpen(true); // First Tap: Expand list
+                            setMobileCatOpen(true);
                           } else {
-                            setMobileOpen(false); // Second Tap: Navigate to Main Categories page
+                            setMobileOpen(false);
                             navigate(n.path);
                           }
                         }}
-                        className="text-left font-display text-3xl tracking-[-0.04em] py-2 hover:translate-x-2 transition-transform duration-500 flex items-center justify-between w-full"
+                        className={`text-left font-display text-3xl py-2 transition-all duration-500 flex items-center justify-between w-full ${language === 'KH' ? 'tracking-normal' : 'tracking-[-0.04em] hover:translate-x-2'}`}
                         style={{ transitionDelay: `${i * 40}ms` }}
                       >
-                        {n.label}
+                        {displayName}
                         <ChevronDown size={24} strokeWidth={1.5} className={`transition-transform duration-300 opacity-60 ${mobileCatOpen ? 'rotate-180' : ''}`} />
                       </button>
                       
-                      {/* Mobile Categories Expanded List */}
                       {mobileCatOpen && categories.length > 0 && (
                         <div className="flex flex-col gap-2 pl-4 py-3 border-l-2 border-muted ml-2 mt-1 animate-in slide-in-from-top-2 duration-300">
                           {categories.map((cat) => (
@@ -199,9 +218,9 @@ export default function Navbar({ onOpenSearch }) {
                                 setMobileOpen(false); 
                                 navigate(`/shop?category=${encodeURIComponent(cat.title || cat.name)}`); 
                               }}
-                              className="text-left font-display text-xl tracking-[-0.02em] py-1 text-muted-foreground hover:text-foreground transition-colors w-full"
+                              className={`text-left font-display text-xl py-1 text-muted-foreground hover:text-foreground transition-colors w-full ${language === 'KH' ? 'tracking-normal' : 'tracking-[-0.02em]'}`}
                             >
-                              {cat.title || cat.name}
+                              {t(cat.title || cat.name, cat.name_khmer || cat.name)}
                             </button>
                           ))}
                         </div>
@@ -210,22 +229,37 @@ export default function Navbar({ onOpenSearch }) {
                   );
                 }
 
-                // Normal Mobile Links
                 return (
                   <button
                     key={n.label}
                     onClick={() => { setMobileOpen(false); navigate(n.path); }}
-                    className="text-left font-display text-3xl tracking-[-0.04em] py-2 hover:translate-x-2 transition-transform duration-500 w-full"
+                    className={`text-left font-display text-3xl py-2 transition-all duration-500 w-full ${language === 'KH' ? 'tracking-normal' : 'tracking-[-0.04em] hover:translate-x-2'}`}
                     style={{ transitionDelay: `${i * 40}ms` }}
                   >
-                    {n.label}
+                    {displayName}
                   </button>
                 );
               })}
             </nav>
             
-            <div className="mt-8 flex flex-col gap-4 pt-6 border-t hairline shrink-0">
-              <div className="flex items-center gap-5">
+            <div className="mt-8 flex flex-col gap-5 pt-6 border-t hairline shrink-0">
+              {/* --- LOCALIZATION TOGGLES (MOBILE) --- */}
+              <div className="flex items-center gap-6 pb-4 border-b hairline">
+                <button 
+                  onClick={() => setLanguage(l => l === 'EN' ? 'KH' : 'EN')}
+                  className="flex items-center gap-2 label-mono text-muted-foreground hover:text-foreground"
+                >
+                  <Globe size={16} /> {language === 'EN' ? 'English' : 'ភាសាខ្មែរ'}
+                </button>
+                <button 
+                  onClick={() => setCurrency(c => c === 'USD' ? 'KHR' : 'USD')}
+                  className="flex items-center gap-2 label-mono text-muted-foreground hover:text-foreground"
+                >
+                  <Coins size={16} /> {currency}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-6">
                 <Link to="/wishlist" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 label-mono"><Heart size={16} /> Wishlist</Link>
                 <Link to="/account" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 label-mono"><User size={16} /> Account</Link>
               </div>
