@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider } from '@/lib/AuthContext';
 import ScrollToTop from './components/ScrollToTop';
+import { LocalizationProvider } from "./lib/localization-context";
 
 // --- STOREFRONT IMPORTS ---
 import StoreLayout from '@/components/store/StoreLayout';
@@ -29,11 +30,12 @@ import ForgotPassword from '@/pages/ForgotPassword';
 
 export default function App() {
   return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <Router>
-          <ScrollToTop />
-          <Routes>
+    <LocalizationProvider>
+      <AuthProvider>
+        <QueryClientProvider client={queryClientInstance}>
+          <Router>
+            <ScrollToTop />
+            <Routes>
             {/* Auth Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -64,5 +66,6 @@ export default function App() {
         <Toaster />
       </QueryClientProvider>
     </AuthProvider>
-  )
+    </LocalizationProvider>
+  );
 }
