@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -18,10 +19,13 @@ export default function AccountProfile() {
     setSaved(false);
     
     try {
-      await supabase
-        .from('profiles')
+      // FIXED: Pointing to the correct 'users' table established in Phase 0
+      const { error } = await supabase
+        .from('users')
         .update({ full_name: displayName.trim(), phone: phone.trim() })
         .eq('id', user.id);
+        
+      if (error) throw error;
         
       await reloadUser();
       setSaved(true);
@@ -46,7 +50,7 @@ export default function AccountProfile() {
             ["Member since", joined],
           ].map(([k, v]) => (
             <div key={k} className="px-5 py-4 flex items-center justify-between">
-              <span className="label-mono text-muted-foreground text-[9px]">{k}</span>
+              <span className="label-mono text-muted-foreground text-[9px] uppercase">{k}</span>
               <span className="text-sm font-mono">{v}</span>
             </div>
           ))}
@@ -55,20 +59,30 @@ export default function AccountProfile() {
 
       <section>
         <h2 className="font-display text-2xl tracking-[-0.04em] mb-6">Preferences</h2>
-        <form onSubmit={save} className="border hairline p-6 space-y-5 max-w-md">
+        <form onSubmit={save} className="border hairline p-6 space-y-5 max-w-md bg-white">
           <label className="block">
-            <span className="label-mono text-muted-foreground text-[9px]">Display Name</span>
-            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="How we address you" className="mt-1.5 w-full border hairline px-3 py-2.5 text-sm focus:outline-none focus:border-foreground" />
+            <span className="label-mono text-muted-foreground text-[9px] uppercase">Full Name</span>
+            <input 
+              value={displayName} 
+              onChange={(e) => setDisplayName(e.target.value)} 
+              placeholder="Your full name" 
+              className="mt-1.5 w-full border hairline px-3 py-2.5 text-sm focus:outline-none focus:border-foreground bg-background" 
+            />
           </label>
           <label className="block">
-            <span className="label-mono text-muted-foreground text-[9px]">Phone</span>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555 000 0000" className="mt-1.5 w-full border hairline px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-foreground" />
+            <span className="label-mono text-muted-foreground text-[9px] uppercase">Phone</span>
+            <input 
+              value={phone} 
+              onChange={(e) => setPhone(e.target.value)} 
+              placeholder="+855 000 0000" 
+              className="mt-1.5 w-full border hairline px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-foreground bg-background" 
+            />
           </label>
           <div className="flex items-center gap-3 pt-2">
-            <button type="submit" disabled={saving} className="bg-foreground text-background px-6 py-3 label-mono hover:opacity-85 disabled:opacity-40">
-              {saving ? "Saving…" : "Save"}
+            <button type="submit" disabled={saving} className="bg-foreground text-background px-6 py-3 label-mono hover:opacity-85 disabled:opacity-40 transition-opacity">
+              {saving ? "Saving…" : "Save Profile"}
             </button>
-            {saved && <span className="label-mono text-[9px] text-emerald-600 flex items-center gap-1"><Check size={12} /> Saved</span>}
+            {saved && <span className="label-mono text-[10px] text-emerald-600 flex items-center gap-1"><Check size={14} /> Saved</span>}
           </div>
         </form>
       </section>
