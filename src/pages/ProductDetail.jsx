@@ -33,14 +33,13 @@ export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { addItem, toggleWishlist, isInWishlist } = /** @type {any} */ (useCart());
-  const { formatPrice, t } = useLocalization();
+  const { formatPrice, t = (k, d) => d } = /** @type {any} */ (useLocalization() || {});
 
   const [product, setProduct] = useState(/** @type {any} */ (null));
+  const [selectedVariant, setSelectedVariant] = useState(/** @type {any} */ (null));
   const [related, setRelated] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
   const [activeImg, setActiveImg] = useState(0);
-  const [size, setSize] = useState(/** @type {string | null} */ (null));
-  const [color, setColor] = useState(/** @type {string | null} */ (null));
   const [qty, setQty] = useState(1);
   const [showBarcode, setShowBarcode] = useState(false);
   const [descOpen, setDescOpen] = useState(false);
@@ -48,39 +47,86 @@ export default function ProductDetail() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    setActiveImg(0); setSize(null); setColor(null); setQty(1);
+    setActiveImg(0);
+    setQty(1);
+    setSelectedVariant(null);
     
     (async () => {
       try {
+        // Fetch product WITH its variants
         const { data: p, error } = await supabase
           .from('products')
-          .select('*')
+          .select('*, product_variants(*)')
           .eq('id', id)
-          .single();
+          .maybeSingle();
           
-        if (error) throw error;
-        
-        setProduct(p);
-        if (p.colors?.length) setColor(p.colors[0]);
-        if (p.sizes?.length) setSize(p.sizes[0]);
+        if (error || !p) {
+          console.error("Product query error:", error);
+          setLoading(false);
+          return;
+        }
 
+        const variantIds = p.product_variants?.map((/** @type {any} */ v) => v.id) || [];
+        let balancesMap = /** @type {Record<string, any>} */ ({});
+        
+        if (variantIds.length > 0) {
+          try {
+            const { data: balances } = await supabase
+              .from('variant_stock_balances')
+              .select('*')
+              .in('variant_id', variantIds);
+            
+            balances?.forEach(b => { balancesMap[b.variant_id] = b; });
+          } catch (e) {
+            console.warn("Could not fetch variant stock balances:", e);
+          }
+        }
+
+        // Map active variants or construct a fallback variant for legacy products
+        let activeVariants = (p.product_variants || [])
+          .filter((/** @type {any} */ v) => v.is_active)
+          .map((/** @type {any} */ v) => ({ 
+            ...v, 
+            balances: balancesMap[v.id] || { available: 0, on_hand: 0 } 
+          }));
+
+        // BACKWARD COMPATIBILITY SAFEGUARD:
+        // If product has no variants in DB yet, create a virtual one from product fields
+        if (activeVariants.length === 0) {
+          activeVariants = [{
+            id: null,
+            sku: p.code || `SKU-${p.id.slice(0, 8).toUpperCase()}`,
+            size: Array.isArray(p.sizes) ? p.sizes[0] : (p.sizes || "500ml"),
+            scent: p.color || null,
+            price: Number(p.price) || 0,
+            discount_price: p.discount ? Number(p.discount) : (p.discount_price ? Number(p.discount_price) : null),
+            balances: { available: p.stock ?? 100, on_hand: p.stock ?? 100 },
+            is_active: true
+          }];
+        }
+
+        p.variants = activeVariants;
+        setProduct(p);
+        setSelectedVariant(activeVariants[0]);
+
+        // Fetch related products
         const { data: all } = await supabase
           .from('products')
           .select('*')
           .neq('id', id)
           .neq('status', 'archived')
           .order('created_at', { ascending: false })
-          .limit(60);
+          .limit(20);
 
         if (all) {
           setRelated(
             all.filter((/** @type {any} */ x) => 
-              x.gender === p.gender || x.category_id === p.category_id
+              x.category === p.category || x.product_type === p.product_type
             ).slice(0, 4)
           );
         }
       } catch (e) { 
-        console.error("Error fetching product:", e); 
+        console.error("Error loading product detail:", e); 
       }
       setLoading(false);
     })();
@@ -88,30 +134,40 @@ export default function ProductDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
+      <div className="min-h-[60vh] flex items-center justify-center bg-background">
         <div className="w-6 h-6 border border-foreground border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
-  if (!product) {
+  
+  if (!product || !selectedVariant) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 bg-background">
         <p className="font-display text-3xl tracking-[-0.04em]">{t("Object not found.", "រកមិនឃើញវត្ថុទេ")}</p>
         <Link to="/shop" className="label-mono border-b border-foreground pb-1">{t("Return to Shop", "ត្រឡប់ទៅហាងវិញ")}</Link>
       </div>
     );
   }
 
-  const hasDiscount = product.discount_price != null && product.discount_price < product.price;
-  const discountPct = hasDiscount ? Math.round((1 - product.discount_price / product.price) * 100) : 0;
-  const currentPrice = hasDiscount ? product.discount_price : product.price;
+  const hasDiscount = selectedVariant.discount_price != null && selectedVariant.discount_price < selectedVariant.price;
+  const discountPct = hasDiscount ? Math.round((1 - selectedVariant.discount_price / selectedVariant.price) * 100) : 0;
+  const currentPrice = hasDiscount ? selectedVariant.discount_price : selectedVariant.price;
   const liked = isInWishlist(product.id);
-  const soldOut = product.stock <= 0;
-  const lowStock = product.stock > 0 && product.stock <= 5;
-  const images = product.images?.length ? product.images : [];
+  
+  const stockAvailable = selectedVariant.balances?.available ?? product.stock ?? 0;
+  const soldOut = stockAvailable <= 0;
+  const lowStock = stockAvailable > 0 && stockAvailable <= 5;
+  const images = product.images?.length ? product.images : (product.image ? [product.image] : []);
 
   const handleAdd = () => {
-    addItem(product, { size: size || "ONE SIZE", color: color || "Default", quantity: qty });
+    addItem(product, { 
+      variant_id: selectedVariant.id,
+      sku: selectedVariant.sku,
+      size: selectedVariant.size || "Default", 
+      scent: selectedVariant.scent || "Default", 
+      price: currentPrice,
+      quantity: qty 
+    });
   };
   
   const handleBuyNow = () => {
@@ -120,7 +176,7 @@ export default function ProductDetail() {
   };
 
   return (
-    <div className="bg-background">
+    <div className="bg-background min-h-screen">
       {/* Breadcrumb */}
       <div className="border-b hairline">
         <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-4 flex items-center gap-2 label-mono text-muted-foreground text-[10px]">
@@ -149,7 +205,7 @@ export default function ProductDetail() {
             </div>
           )}
           <div className="flex-1">
-            <div className="aspect-[4/5] bg-muted overflow-hidden">
+            <div className="aspect-[4/5] bg-muted overflow-hidden border hairline">
               {images[activeImg] && <Image src={images[activeImg]} alt={product.name} className="w-full h-full" fittingType="fill" />}
             </div>
           </div>
@@ -158,8 +214,8 @@ export default function ProductDetail() {
         {/* Data panel */}
         <div className="md:py-2">
           <div className="flex items-center gap-2 mb-3">
-            {product.is_new && <span className="label-mono border hairline px-2 py-1">{t("New", "ថ្មី")}</span>}
-            {product.is_best_seller && <span className="label-mono border hairline px-2 py-1">{t("Best Seller", "លក់ដាច់បំផុត")}</span>}
+            {product.is_new && <span className="label-mono border hairline px-2 py-1 bg-background">{t("New", "ថ្មី")}</span>}
+            {product.is_best_seller && <span className="label-mono border hairline px-2 py-1 bg-background">{t("Best Seller", "លក់ដាច់បំផុត")}</span>}
             {hasDiscount && <span className="label-mono bg-foreground text-background px-2 py-1">−{discountPct}%</span>}
           </div>
 
@@ -167,7 +223,7 @@ export default function ProductDetail() {
             {t(product.name, product.name_khmer)}
           </h1>
 
-          {/* SKU + barcode reveal */}
+          {/* SKU & Barcode */}
           <div
             className="mt-4 min-h-[28px] cursor-pointer"
             onMouseEnter={() => setShowBarcode(true)}
@@ -175,73 +231,51 @@ export default function ProductDetail() {
             onClick={() => setShowBarcode((s) => !s)}
           >
             {!showBarcode ? (
-              <p className="label-mono text-muted-foreground">SKU: {product.sku || "—"}</p>
+              <p className="label-mono text-muted-foreground">SKU: {selectedVariant.sku || "—"}</p>
             ) : (
               <div className="transition-all duration-300">
-                <BarcodeSVG value={product.barcode || product.sku || "000000000000"} />
-                <p className="label-mono text-muted-foreground mt-1">{product.barcode || t("No barcode", "គ្មានបាកូដ")}</p>
+                <BarcodeSVG value={selectedVariant.barcode || selectedVariant.sku || "000000000000"} />
+                <p className="label-mono text-muted-foreground mt-1">{selectedVariant.barcode || t("No barcode", "គ្មានបាកូដ")}</p>
               </div>
             )}
           </div>
 
           {/* Price */}
           <div className="flex items-baseline gap-3 mt-6">
-            <span className="font-mono text-3xl tracking-tight">{formatPrice(currentPrice)}</span>
-            {hasDiscount && <span className="font-mono text-lg text-muted-foreground line-through">{formatPrice(product.price)}</span>}
+            <span className="font-mono text-3xl tracking-tight text-foreground">{formatPrice(currentPrice)}</span>
+            {hasDiscount && <span className="font-mono text-lg text-muted-foreground line-through">{formatPrice(selectedVariant.price)}</span>}
           </div>
-          {hasDiscount && <p className="label-mono text-destructive mt-1">{t("You save", "អ្នកសន្សំបាន")} {formatPrice(product.price - currentPrice)} ({discountPct}%)</p>}
+          {hasDiscount && (
+            <p className="label-mono text-destructive mt-1">
+              {t("You save", "អ្នកសន្សំបាន")} {formatPrice(selectedVariant.price - currentPrice)} ({discountPct}%)
+            </p>
+          )}
 
           {/* Availability */}
           <div className="mt-4 flex items-center gap-2 label-mono">
             <span className={`w-2 h-2 rounded-full ${soldOut ? "bg-destructive" : lowStock ? "bg-amber-500" : "bg-emerald-500"}`} />
             <span className={soldOut ? "text-destructive" : "text-muted-foreground"}>
-              {soldOut ? t("Sold Out", "អស់ពីស្តុក") : lowStock ? t(`Low Stock — ${product.stock} left`, `ស្តុកជិតអស់ — នៅសល់ ${product.stock}`) : t(`In Stock — ${product.stock} units`, `មានក្នុងស្តុក — ${product.stock} ឯកតា`)}
+              {soldOut 
+                ? t("Sold Out", "អស់ពីស្តុក") 
+                : lowStock 
+                  ? t(`Low Stock — ${stockAvailable} left`, `ស្តុកជិតអស់ — នៅសល់ ${stockAvailable}`) 
+                  : t(`In Stock`, `មានក្នុងស្តុក`)}
             </span>
           </div>
 
-          {/* Description */}
-          <div className="mt-6 border-t hairline pt-6">
-            <button onClick={() => setDescOpen((o) => !o)} className="flex items-center justify-between w-full label-mono">
-              <span>{t("Description", "ការពិពណ៌នា")}</span><Plus size={14} className={`transition-transform ${descOpen ? "rotate-45" : ""}`} />
-            </button>
-            {descOpen && (product.description || product.overview_khmer) && (
-              <p className="text-sm text-muted-foreground leading-relaxed mt-4 inertia-fade">
-                {t(product.description || product.overview, product.overview_khmer || product.description)}
-              </p>
-            )}
-            {!(product.description || product.overview_khmer) && descOpen && <p className="text-sm text-muted-foreground mt-4">{t("No description available.", "មិនមានការពិពណ៌នាទេ។")}</p>}
-          </div>
-
-          {/* Color */}
-          {product.colors?.length > 0 && (
-            <div className="mt-6">
-              <p className="label-mono text-muted-foreground mb-3">{t("Color", "ពណ៌")} — <span className="text-foreground">{t(color, color)}</span></p>
+          {/* Variants Selection */}
+          {product.variants?.length > 1 && (
+            <div className="mt-8 border-t hairline pt-6">
+              <p className="label-mono text-muted-foreground mb-3">{t("Variant Selection", "ការជ្រើសរើសប្រភេទ")}</p>
               <div className="flex flex-wrap gap-2">
-                {product.colors.map((/** @type {string} */ c) => (
+                {product.variants.map((/** @type {any} */ v, /** @type {number} */ idx) => (
                   <button
-                    key={c}
-                    onClick={() => setColor(c)}
-                    className={`px-4 py-2 border label-mono text-[10px] ${color === c ? "bg-foreground text-background border-foreground" : "hairline"}`}
-                  >{t(c, c)}</button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Size */}
-          {product.sizes?.length > 0 && (
-            <div className="mt-6">
-              <div className="flex items-center justify-between mb-3">
-                <p className="label-mono text-muted-foreground">{t("Size", "ទំហំ")}</p>
-                <button className="label-mono text-muted-foreground underline underline-offset-4 text-[10px]">{t("Size Guide", "មគ្គុទ្ទេសក៍ទំហំ")}</button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {product.sizes.map((/** @type {string} */ s) => (
-                  <button
-                    key={s}
-                    onClick={() => setSize(s)}
-                    className={`min-w-[3rem] px-3 py-2.5 border label-mono text-[10px] ${size === s ? "bg-foreground text-background border-foreground" : "hairline hover:border-foreground"}`}
-                  >{s}</button>
+                    key={v.id || idx}
+                    onClick={() => { setSelectedVariant(v); setQty(1); }}
+                    className={`min-w-[4rem] px-4 py-3 border label-mono text-xs transition-colors ${selectedVariant === v ? "bg-foreground text-background border-foreground" : "bg-background text-foreground hairline hover:border-foreground"}`}
+                  >
+                    {v.size || v.sku} {v.scent ? `· ${v.scent}` : ''}
+                  </button>
                 ))}
               </div>
             </div>
@@ -250,10 +284,10 @@ export default function ProductDetail() {
           {/* Quantity */}
           <div className="mt-6">
             <p className="label-mono text-muted-foreground mb-3">{t("Quantity", "បរិមាណ")}</p>
-            <div className="inline-flex items-center border hairline">
+            <div className="inline-flex items-center border hairline bg-background">
               <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="px-4 py-3 hover:bg-muted" aria-label="Decrease"><Minus size={14} /></button>
-              <span className="px-6 font-mono text-sm">{qty}</span>
-              <button onClick={() => setQty((q) => Math.min(product.stock, q + 1))} className="px-4 py-3 hover:bg-muted" aria-label="Increase"><Plus size={14} /></button>
+              <span className="px-6 font-mono text-sm text-foreground">{qty}</span>
+              <button onClick={() => setQty((q) => Math.min(Math.max(1, stockAvailable), q + 1))} className="px-4 py-3 hover:bg-muted" aria-label="Increase"><Plus size={14} /></button>
             </div>
           </div>
 
@@ -262,7 +296,7 @@ export default function ProductDetail() {
             <button
               onClick={handleAdd}
               disabled={soldOut}
-              className="w-full bg-foreground text-background py-4 label-mono flex items-center justify-center gap-2 hover:bg-foreground/85 transition-colors disabled:opacity-40"
+              className="w-full bg-foreground text-background py-4 label-mono flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-40"
             >
               <ShoppingBag size={15} /> {t("Add to Bag", "បន្ថែមទៅកាបូប")}
             </button>
@@ -270,35 +304,30 @@ export default function ProductDetail() {
               <button
                 onClick={handleBuyNow}
                 disabled={soldOut}
-                className="border border-foreground py-4 label-mono hover:bg-foreground hover:text-background transition-colors disabled:opacity-40"
+                className="border border-foreground bg-background text-foreground py-4 label-mono hover:bg-foreground hover:text-background transition-colors disabled:opacity-40"
               >
                 {t("Buy Now", "ទិញឥឡូវនេះ")}
               </button>
               <button
                 onClick={() => toggleWishlist(product.id)}
                 aria-label="Wishlist"
-                className="border hairline px-5 flex items-center justify-center hover:border-foreground transition-colors"
+                className="border hairline bg-background px-5 flex items-center justify-center hover:border-foreground transition-colors"
               >
-                <Heart size={16} fill={liked ? "currentColor" : "none"} />
+                <Heart size={16} fill={liked ? "currentColor" : "none"} className="text-foreground" />
               </button>
             </div>
           </div>
 
-          {/* Technical specs */}
-          <div className="mt-8 border-t hairline pt-6 grid grid-cols-2 gap-y-4 gap-x-6">
-            {[
-              [t("Material", "សម្ភារៈ"), t(product.material || "Premium", product.material || "ពិសេស")],
-              [t("Brand", "ម៉ាក"), product.brand_name || "Monolithic"],
-              [t("Gender", "ភេទ"), product.gender],
-              [t("Category", "ប្រភេទ"), t(product.category_name || "—", product.category_name || "—")],
-              [t("Barcode", "បាកូដ"), product.barcode || "—"],
-              ["SKU", product.sku || "—"],
-            ].map(([k, v]) => (
-              <div key={k}>
-                <p className="label-mono text-muted-foreground text-[10px]">{k}</p>
-                <p className="text-sm font-mono mt-1 capitalize">{v || "—"}</p>
-              </div>
-            ))}
+          {/* Description */}
+          <div className="mt-8 border-t hairline pt-6">
+            <button onClick={() => setDescOpen((o) => !o)} className="flex items-center justify-between w-full label-mono text-foreground">
+              <span>{t("Description", "ការពិពណ៌នា")}</span><Plus size={14} className={`transition-transform ${descOpen ? "rotate-45" : ""}`} />
+            </button>
+            {descOpen && (product.description || product.overview || product.overview_khmer) && (
+              <p className="text-sm text-muted-foreground leading-relaxed mt-4 inertia-fade">
+                {t(product.description || product.overview, product.overview_khmer || product.description)}
+              </p>
+            )}
           </div>
 
           {/* Assurances */}
@@ -310,7 +339,7 @@ export default function ProductDetail() {
         </div>
       </div>
 
-      {/* Related */}
+      {/* Related Section */}
       {related.length > 0 && (
         <section className="border-t hairline py-16 md:py-24">
           <div className="max-w-[1400px] mx-auto px-4 md:px-8">

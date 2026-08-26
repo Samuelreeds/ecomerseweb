@@ -7,7 +7,6 @@ import { useLocalization } from "@/lib/localization-context";
 import ProductCard from "@/components/store/ProductCard";
 import Reveal from "@/components/store/Reveal";
 
-// Added labelKh for automatic translation in the dropdown
 const SORTS = [
   { value: "newest", label: "Newest", labelKh: "ថ្មីបំផុត" },
   { value: "popular", label: "Popular", labelKh: "ពេញនិយម" },
@@ -19,7 +18,7 @@ const SORTS = [
 
 export default function Shop() {
   const [params, setParams] = useSearchParams();
-  const { t } = useLocalization(); // <-- Hooked into global localization
+  const { t } = /** @type {any} */ (useLocalization());
 
   const [all, setAll] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -48,21 +47,34 @@ export default function Shop() {
         const fetchSafe = async (/** @type {string} */ table) => {
           try {
             const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: false }).limit(50);
-            if (error) return [];
             return data || [];
           } catch (err) {
             return [];
           }
         };
 
+        // NEW: Fetch products alongside their active variants
         const { data: prodData } = await supabase
           .from("products")
-          .select("*")
+          .select("*, product_variants(price, discount_price, is_active)")
           .neq("status", "archived")
           .order("created_at", { ascending: false })
           .limit(200);
 
-        if (prodData) setAll(prodData);
+        if (prodData) {
+          // Map products to display the base price of their cheapest variant
+          const mappedProducts = prodData.map(p => {
+            const activeVariants = p.product_variants?.filter((/** @type {any} */ v) => v.is_active) || [];
+            if (activeVariants.length > 0) {
+              const lowestPrice = Math.min(...activeVariants.map((/** @type {any} */ v) => v.price));
+              const validDiscounts = activeVariants.map((/** @type {any} */ v) => v.discount_price).filter(Boolean);
+              const lowestDiscount = validDiscounts.length > 0 ? Math.min(...validDiscounts) : null;
+              return { ...p, price: lowestPrice, discount_price: lowestDiscount };
+            }
+            return p;
+          });
+          setAll(mappedProducts);
+        }
 
         const [catData, colorData, sizeData] = await Promise.all([
           fetchSafe("categories"),
@@ -104,26 +116,12 @@ export default function Shop() {
   const filtered = useMemo(() => {
     let r = [...all];
     
-    if (filters.category.length) {
-      r = r.filter((/** @type {any} */ p) => 
-        filters.category.some((/** @type {string} */ c) => 
-          (p.category || "").toLowerCase().includes(c.toLowerCase())
-        )
-      );
-    }
-    
+    if (filters.category.length) r = r.filter((/** @type {any} */ p) => filters.category.some((/** @type {string} */ c) => (p.category || "").toLowerCase().includes(c.toLowerCase())));
     if (filters.color.length) r = r.filter((/** @type {any} */ p) => (p.colors || []).some((/** @type {string} */ c) => filters.color.some((/** @type {string} */ fc) => c.toLowerCase().includes(fc.toLowerCase()))));
     if (filters.size.length) r = r.filter((/** @type {any} */ p) => (p.sizes || []).some((/** @type {string} */ s) => filters.size.includes(s)));
     
-    if (filters.minPrice != null) {
-      const min = filters.minPrice;
-      r = r.filter((/** @type {any} */ p) => (p.discount_price ?? p.price) >= min);
-    }
-    if (filters.maxPrice != null) {
-      const max = filters.maxPrice;
-      r = r.filter((/** @type {any} */ p) => (p.discount_price ?? p.price) <= max);
-    }
-
+    if (filters.minPrice != null) r = r.filter((/** @type {any} */ p) => (p.discount_price ?? p.price) >= filters.minPrice);
+    if (filters.maxPrice != null) r = r.filter((/** @type {any} */ p) => (p.discount_price ?? p.price) <= filters.maxPrice);
     if (filters.discount) r = r.filter((/** @type {any} */ p) => p.discount_price != null && p.discount_price < p.price);
     if (filters.filter === "new") r = r.filter((/** @type {any} */ p) => p.is_new);
     if (filters.filter === "best") r = r.filter((/** @type {any} */ p) => p.is_best_seller);
@@ -142,20 +140,14 @@ export default function Shop() {
   const paged = filtered.slice(0, page * PAGE_SIZE);
   const activeCount = filters.category.length + filters.color.length + filters.size.length + (filters.minPrice != null ? 1 : 0) + (filters.maxPrice != null ? 1 : 0) + (filters.discount ? 1 : 0);
 
-  /**
-   * @param {{ title: string, children: React.ReactNode }} props
-   */
-  const FilterSection = ({ title, children }) => (
+  const FilterSection = (/** @type {any} */ { title, children }) => (
     <div className="border-b hairline py-5">
       <p className="label-mono text-muted-foreground mb-3">{title}</p>
       {children}
     </div>
   );
 
-  /**
-   * @param {{ active: boolean, onClick: () => void, label: string }} props
-   */
-  const CheckRow = ({ active, onClick, label }) => (
+  const CheckRow = (/** @type {any} */ { active, onClick, label }) => (
     <button onClick={onClick} className="flex items-center gap-2.5 py-1.5 w-full text-left text-sm hover:opacity-70 transition-opacity">
       <span className={`w-4 h-4 border hairline flex items-center justify-center ${active ? "bg-foreground" : ""}`}>
         {active && <Check size={11} className="text-background" strokeWidth={3} />}
@@ -169,12 +161,7 @@ export default function Shop() {
       {categories.length > 0 && (
         <FilterSection title={t("Category", "ប្រភេទ")}>
           {categories.map((/** @type {any} */ c) => (
-            <CheckRow 
-              key={c.id} 
-              active={filters.category.includes(c.id) || filters.category.includes(c.name)} 
-              onClick={() => toggleMulti("category", c.name)} 
-              label={t(c.name, c.name_khmer || c.name)} 
-            />
+            <CheckRow key={c.id} active={filters.category.includes(c.id) || filters.category.includes(c.name)} onClick={() => toggleMulti("category", c.name)} label={t(c.name, c.name_khmer || c.name)} />
           ))}
         </FilterSection>
       )}
@@ -183,13 +170,7 @@ export default function Shop() {
         <FilterSection title={t("Color", "ពណ៌")}>
           <div className="flex flex-wrap gap-2">
             {colors.map((/** @type {any} */ c) => (
-              <button 
-                key={c.id || c.name} 
-                onClick={() => toggleMulti("color", c.name)} 
-                className={`px-3 py-1.5 border hairline label-mono text-[10px] ${filters.color.includes(c.name) ? "bg-foreground text-background" : ""}`}
-              >
-                {t(c.name, c.name_khmer || c.name)}
-              </button>
+              <button key={c.id || c.name} onClick={() => toggleMulti("color", c.name)} className={`px-3 py-1.5 border hairline label-mono text-[10px] ${filters.color.includes(c.name) ? "bg-foreground text-background" : ""}`}>{t(c.name, c.name_khmer || c.name)}</button>
             ))}
           </div>
         </FilterSection>
@@ -199,13 +180,7 @@ export default function Shop() {
         <FilterSection title={t("Size", "ទំហំ")}>
           <div className="flex flex-wrap gap-2">
             {sizes.map((/** @type {any} */ s) => (
-              <button 
-                key={s.id || s.name} 
-                onClick={() => toggleMulti("size", s.name)} 
-                className={`px-3 py-1.5 border hairline label-mono text-[10px] ${filters.size.includes(s.name) ? "bg-foreground text-background" : ""}`}
-              >
-                {s.name}
-              </button>
+              <button key={s.id || s.name} onClick={() => toggleMulti("size", s.name)} className={`px-3 py-1.5 border hairline label-mono text-[10px] ${filters.size.includes(s.name) ? "bg-foreground text-background" : ""}`}>{s.name}</button>
             ))}
           </div>
         </FilterSection>
@@ -213,9 +188,9 @@ export default function Shop() {
 
       <FilterSection title={t("Price Range", "ជួរតម្លៃ")}>
         <div className="flex items-center gap-2">
-          <input type="number" placeholder={t("Min", "អប្បបរមា")} defaultValue={filters.minPrice ?? ""} onBlur={(e) => setSingle("minPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none" />
+          <input type="number" placeholder={t("Min", "អប្បបរមា")} defaultValue={filters.minPrice ?? ""} onBlur={(e) => setSingle("minPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none bg-background" />
           <span className="text-muted-foreground">—</span>
-          <input type="number" placeholder={t("Max", "អតិបរមា")} defaultValue={filters.maxPrice ?? ""} onBlur={(e) => setSingle("maxPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none" />
+          <input type="number" placeholder={t("Max", "អតិបរមា")} defaultValue={filters.maxPrice ?? ""} onBlur={(e) => setSingle("maxPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none bg-background" />
         </div>
       </FilterSection>
       
@@ -232,8 +207,7 @@ export default function Shop() {
   );
 
   return (
-    <div className="bg-background">
-      {/* Header */}
+    <div className="bg-background min-h-screen">
       <div className="border-b hairline">
         <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-10 md:py-14">
           <p className="label-mono text-muted-foreground mb-3">— {t("The Collection", "បណ្តុំផលិតផល")}</p>
@@ -246,13 +220,11 @@ export default function Shop() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-4 md:px-8 grid md:grid-cols-[230px_1fr] gap-10 py-10">
-        {/* Desktop sidebar */}
         <aside className="hidden md:block sticky top-24 self-start max-h-[calc(100vh-7rem)] overflow-y-auto no-scrollbar">
           <FilterPanel />
         </aside>
 
         <div>
-          {/* Toolbar */}
           <div className="flex items-center justify-between mb-8 pb-4 border-b hairline">
             <button onClick={() => setFilterOpen(true)} className="flex items-center gap-2 label-mono md:hidden">
               <SlidersHorizontal size={14} /> {t("Filters", "តម្រង")} {activeCount > 0 && `(${activeCount})`}
@@ -261,11 +233,7 @@ export default function Shop() {
               {t("Showing", "បង្ហាញ")} {paged.length} {t("of", "នៃ")} {filtered.length}
             </span>
             <div className="relative">
-              <select
-                value={sort}
-                onChange={(e) => { setSingle("sort", e.target.value); }}
-                className="appearance-none border hairline pl-3 pr-9 py-2 label-mono bg-background outline-none cursor-pointer"
-              >
+              <select value={sort} onChange={(e) => setSingle("sort", e.target.value)} className="appearance-none border hairline pl-3 pr-9 py-2 label-mono bg-background outline-none cursor-pointer">
                 {SORTS.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.labelKh)}</option>)}
               </select>
               <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -274,7 +242,7 @@ export default function Shop() {
 
           {loading ? (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-x-5 gap-y-10">
-              {[...Array(6)].map((_, i) => <div key={i} className="aspect-[4/5] bg-muted animate-pulse" />)}
+              {[...Array(6)].map((_, i) => <div key={i} className="aspect-[4/5] bg-muted animate-pulse border hairline" />)}
             </div>
           ) : paged.length === 0 ? (
             <div className="py-24 text-center">
@@ -302,11 +270,10 @@ export default function Shop() {
         </div>
       </div>
 
-      {/* Mobile filter drawer */}
       {filterOpen && (
         <div className="fixed inset-0 z-[70] md:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setFilterOpen(false)} />
-          <div className="absolute left-0 top-0 bottom-0 w-[85%] max-w-sm bg-background p-6 overflow-y-auto inertia-up">
+          <div className="absolute left-0 top-0 bottom-0 w-[85%] max-w-sm bg-background p-6 overflow-y-auto inertia-up border-r hairline">
             <div className="flex items-center justify-between mb-6">
               <span className="font-display text-lg tracking-[-0.04em]">{t("Filters", "តម្រង")}</span>
               <button onClick={() => setFilterOpen(false)}><X size={18} /></button>
