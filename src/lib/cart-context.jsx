@@ -1,4 +1,6 @@
+// @ts-nocheck
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
+import { trackEvent } from "@/lib/analytics";
 
 const CartContext = createContext(/** @type {any} */ (null));
 
@@ -19,25 +21,20 @@ export function CartProvider({ children }) {
   const [wishlist, setWishlist] = useState(() => /** @type {string[]} */ (load("atelier_wishlist", [])));
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Global timer for the cart reservation (10 minutes)
   const [cartExpiresAt, setCartExpiresAt] = useState(() => localStorage.getItem("atelier_cart_expires_at") || null);
 
   useEffect(() => { localStorage.setItem("atelier_cart", JSON.stringify(items)); }, [items]);
   useEffect(() => { localStorage.setItem("atelier_wishlist", JSON.stringify(wishlist)); }, [wishlist]);
 
-  // Expiration Checker
   useEffect(() => {
     if (!cartExpiresAt || items.length === 0) return;
 
     const interval = setInterval(() => {
       if (Date.now() > parseInt(cartExpiresAt, 10)) {
-        // Cart Expired! Wipe everything.
         setItems([]);
         setCartExpiresAt(null);
         localStorage.removeItem("atelier_cart");
         localStorage.removeItem("atelier_cart_expires_at");
-        
-        // Let the user know
         alert("Your cart reservation has expired. The items have been released.");
       }
     }, 1000);
@@ -45,35 +42,42 @@ export function CartProvider({ children }) {
     return () => clearInterval(interval);
   }, [cartExpiresAt, items.length]);
 
-  const openDrawer = useCallback(() => setDrawerOpen(true), []);
+  const openDrawer = useCallback(() => {
+    setDrawerOpen(true);
+    trackEvent('view_cart');
+  }, []);
+  
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
-  const addItem = useCallback((/** @type {any} */ product, /** @type {any} */ { size, color, quantity = 1, max_stock = product.inventory ?? product.stock ?? Infinity }) => {
+  const addItem = useCallback((/** @type {any} */ product, /** @type {any} */ { variant_id, sku, size, color, quantity = 1, max_stock = product.inventory ?? product.stock ?? Infinity, price }) => {
     setItems((/** @type {any[]} */ prev) => {
       const key = `${product.id}|${size}|${color}`;
       const existing = prev.find((i) => i.key === key);
       
+      const finalPrice = price ?? (product.discount_price != null ? product.discount_price : product.price);
+      
       if (existing) {
-        // Enforce max stock limit when adding to existing items[cite: 4]
         const newQty = Math.min(existing.quantity + quantity, existing.max_stock ?? max_stock);
+        trackEvent('add_to_cart', { product_id: product.id, variant_id, value: finalPrice, metadata: { quantity, updated: true } });
         return prev.map((i) => i.key === key ? { ...i, quantity: newQty } : i);
       }
+      
+      trackEvent('add_to_cart', { product_id: product.id, variant_id, value: finalPrice, metadata: { quantity, sku, new_item: true } });
       
       return [...prev, {
         key,
         product_id: product.id,
         name: product.name,
-        price: product.discount_price != null ? product.discount_price : product.price,
+        price: finalPrice,
         original_price: product.price,
         image: product.images?.[0],
         size,
         color,
-        quantity: Math.min(quantity, max_stock), // Enforce limit on initial add[cite: 4]
-        max_stock, // Store the limit for future cart updates[cite: 4]
+        quantity: Math.min(quantity, max_stock), 
+        max_stock, 
       }];
     });
 
-    // Set or refresh the 10-minute timer (600,000 milliseconds)
     const expiryTime = Date.now() + 10 * 60 * 1000;
     setCartExpiresAt(expiryTime.toString());
     localStorage.setItem('atelier_cart_expires_at', expiryTime.toString());
@@ -83,8 +87,12 @@ export function CartProvider({ children }) {
 
   const removeItem = useCallback((/** @type {string} */ key) => {
     setItems((/** @type {any[]} */ prev) => {
+      const itemToRemove = prev.find(i => i.key === key);
+      if (itemToRemove) {
+        trackEvent('remove_from_cart', { product_id: itemToRemove.product_id, value: itemToRemove.price });
+      }
+      
       const newItems = prev.filter((i) => i.key !== key);
-      // If the cart is now empty, kill the timer
       if (newItems.length === 0) {
         setCartExpiresAt(null);
         localStorage.removeItem("atelier_cart_expires_at");
@@ -96,7 +104,6 @@ export function CartProvider({ children }) {
   const updateQty = useCallback((/** @type {string} */ key, /** @type {number} */ quantity) => {
     setItems((/** @type {any[]} */ prev) => prev.map((i) => {
       if (i.key === key) {
-        // Clamp quantity between 1 and the maximum available stock[cite: 4]
         const max = i.max_stock ?? Infinity;
         return { ...i, quantity: Math.max(1, Math.min(quantity, max)) };
       }
@@ -111,7 +118,15 @@ export function CartProvider({ children }) {
   }, []);
 
   const toggleWishlist = useCallback((/** @type {string} */ productId) => {
-    setWishlist((/** @type {string[]} */ prev) => prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId]);
+    setWishlist((/** @type {string[]} */ prev) => {
+      if (prev.includes(productId)) {
+        trackEvent('wishlist_remove', { product_id: productId });
+        return prev.filter((id) => id !== productId);
+      } else {
+        trackEvent('wishlist_add', { product_id: productId });
+        return [...prev, productId];
+      }
+    });
   }, []);
 
   const totals = useMemo(() => {

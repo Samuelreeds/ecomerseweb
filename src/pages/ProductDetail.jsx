@@ -8,6 +8,8 @@ import { useCart } from "@/lib/cart-context";
 import { useLocalization } from "@/lib/localization-context";
 import ProductCard from "@/components/store/ProductCard";
 import Reveal from "@/components/store/Reveal";
+import { trackEvent } from "@/lib/analytics";
+import { useSEO } from "@/hooks/useSEO";
 
 /** @type {any} */
 const Image = BaseImage;
@@ -33,7 +35,7 @@ export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { addItem, toggleWishlist, isInWishlist } = /** @type {any} */ (useCart());
-  const { formatPrice, t = (k, d) => d } = /** @type {any} */ (useLocalization() || {});
+  const { formatPrice, t = (k, d) => d, currency } = /** @type {any} */ (useLocalization() || {});
 
   const [product, setProduct] = useState(/** @type {any} */ (null));
   const [selectedVariant, setSelectedVariant] = useState(/** @type {any} */ (null));
@@ -44,6 +46,48 @@ export default function ProductDetail() {
   const [showBarcode, setShowBarcode] = useState(false);
   const [descOpen, setDescOpen] = useState(false);
 
+  // --- DYNAMIC SEO & STRUCTURED DATA (JSON-LD) ---
+  const currentPrice = selectedVariant?.discount_price ?? selectedVariant?.price ?? 0;
+  const stockAvailable = selectedVariant?.balances?.available ?? 0;
+  const canonicalUrl = `${window.location.origin}/product/${product?.id}`;
+  const localizedTitle = product ? t(product.name, product.name_khmer) : "Product";
+
+  useSEO({
+    title: localizedTitle,
+    description: product?.overview || product?.description || "",
+    canonicalUrl: product ? canonicalUrl : undefined,
+    ogType: "product",
+    ogImage: product?.images?.[0] || product?.image,
+    schema: product && selectedVariant ? {
+      "@context": "https://schema.org/",
+      "@type": "Product",
+      "name": product.name,
+      "image": product.images?.length ? product.images : (product.image ? [product.image] : []),
+      "description": product.overview || product.description,
+      "sku": selectedVariant.sku || undefined,
+      "brand": {
+        "@type": "Brand",
+        "name": "NOIR MTD"
+      },
+      "offers": {
+        "@type": "Offer",
+        "url": canonicalUrl,
+        "priceCurrency": currency || "USD",
+        "price": currentPrice,
+        "availability": stockAvailable > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
+      }
+    } : null,
+    breadcrumbSchema: product ? {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": window.location.origin },
+        { "@type": "ListItem", "position": 2, "name": "Shop", "item": `${window.location.origin}/shop` },
+        { "@type": "ListItem", "position": 3, "name": product.name, "item": canonicalUrl }
+      ]
+    } : null
+  });
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -53,7 +97,6 @@ export default function ProductDetail() {
     
     (async () => {
       try {
-        // Fetch product WITH its variants
         const { data: p, error } = await supabase
           .from('products')
           .select('*, product_variants(*)')
@@ -61,7 +104,6 @@ export default function ProductDetail() {
           .maybeSingle();
           
         if (error || !p) {
-          console.error("Product query error:", error);
           setLoading(false);
           return;
         }
@@ -82,7 +124,6 @@ export default function ProductDetail() {
           }
         }
 
-        // Map active variants or construct a fallback variant for legacy products
         let activeVariants = (p.product_variants || [])
           .filter((/** @type {any} */ v) => v.is_active)
           .map((/** @type {any} */ v) => ({ 
@@ -90,8 +131,6 @@ export default function ProductDetail() {
             balances: balancesMap[v.id] || { available: 0, on_hand: 0 } 
           }));
 
-        // BACKWARD COMPATIBILITY SAFEGUARD:
-        // If product has no variants in DB yet, create a virtual one from product fields
         if (activeVariants.length === 0) {
           activeVariants = [{
             id: null,
@@ -100,7 +139,7 @@ export default function ProductDetail() {
             scent: p.color || null,
             price: Number(p.price) || 0,
             discount_price: p.discount ? Number(p.discount) : (p.discount_price ? Number(p.discount_price) : null),
-            balances: { available: p.stock ?? 100, on_hand: p.stock ?? 100 },
+            balances: { available: 0, on_hand: 0 },
             is_active: true
           }];
         }
@@ -108,8 +147,15 @@ export default function ProductDetail() {
         p.variants = activeVariants;
         setProduct(p);
         setSelectedVariant(activeVariants[0]);
+        
+        const viewPrice = activeVariants[0]?.discount_price ?? activeVariants[0]?.price ?? p.price;
+        trackEvent('product_view', { 
+          product_id: p.id, 
+          variant_id: activeVariants[0]?.id, 
+          value: viewPrice,
+          metadata: { sku: activeVariants[0]?.sku }
+        });
 
-        // Fetch related products
         const { data: all } = await supabase
           .from('products')
           .select('*')
@@ -151,10 +197,7 @@ export default function ProductDetail() {
 
   const hasDiscount = selectedVariant.discount_price != null && selectedVariant.discount_price < selectedVariant.price;
   const discountPct = hasDiscount ? Math.round((1 - selectedVariant.discount_price / selectedVariant.price) * 100) : 0;
-  const currentPrice = hasDiscount ? selectedVariant.discount_price : selectedVariant.price;
   const liked = isInWishlist(product.id);
-  
-  const stockAvailable = selectedVariant.balances?.available ?? product.stock ?? 0;
   const soldOut = stockAvailable <= 0;
   const lowStock = stockAvailable > 0 && stockAvailable <= 5;
   const images = product.images?.length ? product.images : (product.image ? [product.image] : []);
@@ -177,19 +220,17 @@ export default function ProductDetail() {
 
   return (
     <div className="bg-background min-h-screen">
-      {/* Breadcrumb */}
       <div className="border-b hairline">
         <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-4 flex items-center gap-2 label-mono text-muted-foreground text-[10px]">
           <Link to="/" className="hover:text-foreground">{t("Home", "ទំព័រដើម")}</Link>
           <ChevronRight size={11} />
           <Link to="/shop" className="hover:text-foreground">{t("Shop", "ទិញទំនិញ")}</Link>
           <ChevronRight size={11} />
-          <span className="text-foreground truncate">{t(product.name, product.name_khmer)}</span>
+          <span className="text-foreground truncate">{localizedTitle}</span>
         </div>
       </div>
 
       <div className="max-w-[1400px] mx-auto px-4 md:px-8 grid md:grid-cols-[60%_40%] gap-0 md:gap-10 py-8 md:py-12">
-        {/* Image stack */}
         <div className="flex flex-col-reverse md:flex-row gap-4 md:sticky md:top-24 md:self-start md:max-h-[calc(100vh-7rem)] md:overflow-y-auto no-scrollbar">
           {images.length > 1 && (
             <div className="flex md:flex-col gap-3 md:max-h-[60vh] md:overflow-y-auto no-scrollbar">
@@ -211,7 +252,6 @@ export default function ProductDetail() {
           </div>
         </div>
 
-        {/* Data panel */}
         <div className="md:py-2">
           <div className="flex items-center gap-2 mb-3">
             {product.is_new && <span className="label-mono border hairline px-2 py-1 bg-background">{t("New", "ថ្មី")}</span>}
@@ -220,10 +260,9 @@ export default function ProductDetail() {
           </div>
 
           <h1 className="font-display text-3xl md:text-5xl tracking-[-0.04em] leading-[0.95]">
-            {t(product.name, product.name_khmer)}
+            {localizedTitle}
           </h1>
 
-          {/* SKU & Barcode */}
           <div
             className="mt-4 min-h-[28px] cursor-pointer"
             onMouseEnter={() => setShowBarcode(true)}
@@ -240,7 +279,6 @@ export default function ProductDetail() {
             )}
           </div>
 
-          {/* Price */}
           <div className="flex items-baseline gap-3 mt-6">
             <span className="font-mono text-3xl tracking-tight text-foreground">{formatPrice(currentPrice)}</span>
             {hasDiscount && <span className="font-mono text-lg text-muted-foreground line-through">{formatPrice(selectedVariant.price)}</span>}
@@ -251,7 +289,6 @@ export default function ProductDetail() {
             </p>
           )}
 
-          {/* Availability */}
           <div className="mt-4 flex items-center gap-2 label-mono">
             <span className={`w-2 h-2 rounded-full ${soldOut ? "bg-destructive" : lowStock ? "bg-amber-500" : "bg-emerald-500"}`} />
             <span className={soldOut ? "text-destructive" : "text-muted-foreground"}>
@@ -263,7 +300,6 @@ export default function ProductDetail() {
             </span>
           </div>
 
-          {/* Variants Selection */}
           {product.variants?.length > 1 && (
             <div className="mt-8 border-t hairline pt-6">
               <p className="label-mono text-muted-foreground mb-3">{t("Variant Selection", "ការជ្រើសរើសប្រភេទ")}</p>
@@ -281,7 +317,6 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* Quantity */}
           <div className="mt-6">
             <p className="label-mono text-muted-foreground mb-3">{t("Quantity", "បរិមាណ")}</p>
             <div className="inline-flex items-center border hairline bg-background">
@@ -291,7 +326,6 @@ export default function ProductDetail() {
             </div>
           </div>
 
-          {/* Actions */}
           <div className="mt-8 space-y-3">
             <button
               onClick={handleAdd}
@@ -318,7 +352,6 @@ export default function ProductDetail() {
             </div>
           </div>
 
-          {/* Description */}
           <div className="mt-8 border-t hairline pt-6">
             <button onClick={() => setDescOpen((o) => !o)} className="flex items-center justify-between w-full label-mono text-foreground">
               <span>{t("Description", "ការពិពណ៌នា")}</span><Plus size={14} className={`transition-transform ${descOpen ? "rotate-45" : ""}`} />
@@ -330,7 +363,6 @@ export default function ProductDetail() {
             )}
           </div>
 
-          {/* Assurances */}
           <div className="mt-8 space-y-3 border-t hairline pt-6">
             <div className="flex items-center gap-3 text-sm text-muted-foreground"><Truck size={16} /> {t("Complimentary global shipping over $250", "ដឹកជញ្ជូនឥតគិតថ្លៃសម្រាប់ការបញ្ជាទិញលើសពី 250 ដុល្លារ")}</div>
             <div className="flex items-center gap-3 text-sm text-muted-foreground"><RotateCcw size={16} /> {t("30-day returns on unworn garments", "ត្រលប់មកវិញក្នុងរយៈពេល 30 ថ្ងៃ")}</div>
@@ -339,7 +371,6 @@ export default function ProductDetail() {
         </div>
       </div>
 
-      {/* Related Section */}
       {related.length > 0 && (
         <section className="border-t hairline py-16 md:py-24">
           <div className="max-w-[1400px] mx-auto px-4 md:px-8">

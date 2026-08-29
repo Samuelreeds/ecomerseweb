@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useLocalization } from "@/lib/localization-context";
 import { supabase } from "@/lib/supabase";
 import { Image as BaseImage } from "@/components/ui/image";
+import { trackEvent, getSalesChannel } from "@/lib/analytics";
 
 /** @type {any} */
 const Image = BaseImage;
@@ -62,6 +63,11 @@ export default function Checkout() {
         });
       }
     });
+    
+    // --- ANALYTICS: BEGIN CHECKOUT ---
+    if (items.length > 0 && !done) {
+      trackEvent('begin_checkout', { value: totals.total });
+    }
   }, []);
 
   useEffect(() => {
@@ -131,7 +137,8 @@ export default function Checkout() {
         p_phone: form.phone,
         p_address: form.address,
         p_province: form.province,
-        p_items: mappedItems
+        p_items: mappedItems,
+        p_sales_channel: getSalesChannel() // Pass dynamically captured attribution channel
       });
 
       if (rpcError) {
@@ -142,16 +149,13 @@ export default function Checkout() {
       setShowQRPopup(true);
     } catch (/** @type {any} */ e) {
       console.error("Order Creation Error:", e);
-      
-      // STALE SESSION ENFORCEMENT
       if (e.message?.includes('orders_user_id_fkey')) {
         await supabase.auth.signOut();
-        alert(t("Your session is invalid (User deleted). You have been signed out. Please try again.", "វគ្គរបស់អ្នកមិនត្រឹមត្រូវ (អ្នកប្រើប្រាស់ត្រូវបានលុប)។ សូមព្យាយាមម្តងទៀត។"));
+        alert(t("Your session is invalid. You have been signed out.", "វគ្គរបស់អ្នកមិនត្រឹមត្រូវ។"));
         window.location.reload();
         return;
       }
-      
-      alert(e.message || t("Order could not be initialized. Please try again.", "មិនអាចចាប់ផ្តើមការបញ្ជាទិញទេ។ សូមព្យាយាមម្តងទៀត។"));
+      alert(e.message || t("Order could not be initialized.", "មិនអាចចាប់ផ្តើមការបញ្ជាទិញទេ។"));
     }
     setPlacing(false);
   };
@@ -162,34 +166,34 @@ export default function Checkout() {
     
     try {
       const finalUserId = (user && user.id) ? user.id : 'guest';
-      
       const fileExt = form.transactionImage.name.split('.').pop();
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
       const filePath = `${finalUserId}/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('receipts')
-        .upload(filePath, form.transactionImage);
-
+      const { error: uploadError } = await supabase.storage.from('receipts').upload(filePath, form.transactionImage);
       if (uploadError) throw new Error("Failed to upload receipt image.");
 
       const { data: publicUrlData } = supabase.storage.from('receipts').getPublicUrl(filePath);
       
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({
-          transaction_receipt_url: publicUrlData.publicUrl
-        })
-        .eq('id', createdOrder.id);
+      const { error: updateError } = await supabase.from('orders').update({
+        transaction_receipt_url: publicUrlData.publicUrl
+      }).eq('id', createdOrder.id);
 
       if (updateError) throw updateError;
+      
+      // --- ANALYTICS: PURCHASE CONVERSION ---
+      trackEvent('purchase', {
+        order_id: createdOrder.id,
+        value: activeTotal,
+        metadata: { items: items.length }
+      });
 
       setShowQRPopup(false);
       clearCart();
       setDone(`MA-${createdOrder.id.slice(-8).toUpperCase()}`);
     } catch (/** @type {any} */ e) {
       console.error("Payment Submission Error:", e);
-      alert(e.message || t("Payment could not be submitted. Please try again.", "មិនអាចបញ្ជូនការបង់ប្រាក់បានទេ។ សូមព្យាយាមម្តងទៀត។"));
+      alert(e.message || t("Payment could not be submitted.", "មិនអាចបញ្ជូនការបង់ប្រាក់បានទេ។"));
     }
     setUploading(false);
   };

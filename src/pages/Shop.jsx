@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useLocalization } from "@/lib/localization-context";
 import ProductCard from "@/components/store/ProductCard";
 import Reveal from "@/components/store/Reveal";
+import { useSEO } from "@/hooks/useSEO";
 
 const SORTS = [
   { value: "newest", label: "Newest", labelKh: "ថ្មីបំផុត" },
@@ -17,6 +18,20 @@ const SORTS = [
 ];
 
 export default function Shop() {
+  useSEO({
+    title: "Shop The Collection",
+    description: "Browse our complete catalog of premium skincare and beauty products.",
+    canonicalUrl: `${window.location.origin}/shop`,
+    breadcrumbSchema: {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": window.location.origin },
+        { "@type": "ListItem", "position": 2, "name": "Shop", "item": `${window.location.origin}/shop` }
+      ]
+    }
+  });
+
   const [params, setParams] = useSearchParams();
   const { t } = /** @type {any} */ (useLocalization());
 
@@ -46,14 +61,13 @@ export default function Shop() {
       try {
         const fetchSafe = async (/** @type {string} */ table) => {
           try {
-            const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: false }).limit(50);
+            const { data } = await supabase.from(table).select("*").order("created_at", { ascending: false }).limit(50);
             return data || [];
           } catch (err) {
             return [];
           }
         };
 
-        // NEW: Fetch products alongside their active variants
         const { data: prodData } = await supabase
           .from("products")
           .select("*, product_variants(price, discount_price, is_active)")
@@ -62,7 +76,6 @@ export default function Shop() {
           .limit(200);
 
         if (prodData) {
-          // Map products to display the base price of their cheapest variant
           const mappedProducts = prodData.map(p => {
             const activeVariants = p.product_variants?.filter((/** @type {any} */ v) => v.is_active) || [];
             if (activeVariants.length > 0) {
@@ -115,11 +128,9 @@ export default function Shop() {
 
   const filtered = useMemo(() => {
     let r = [...all];
-    
     if (filters.category.length) r = r.filter((/** @type {any} */ p) => filters.category.some((/** @type {string} */ c) => (p.category || "").toLowerCase().includes(c.toLowerCase())));
     if (filters.color.length) r = r.filter((/** @type {any} */ p) => (p.colors || []).some((/** @type {string} */ c) => filters.color.some((/** @type {string} */ fc) => c.toLowerCase().includes(fc.toLowerCase()))));
     if (filters.size.length) r = r.filter((/** @type {any} */ p) => (p.sizes || []).some((/** @type {string} */ s) => filters.size.includes(s)));
-    
     if (filters.minPrice != null) r = r.filter((/** @type {any} */ p) => (p.discount_price ?? p.price) >= filters.minPrice);
     if (filters.maxPrice != null) r = r.filter((/** @type {any} */ p) => (p.discount_price ?? p.price) <= filters.maxPrice);
     if (filters.discount) r = r.filter((/** @type {any} */ p) => p.discount_price != null && p.discount_price < p.price);
@@ -165,7 +176,6 @@ export default function Shop() {
           ))}
         </FilterSection>
       )}
-
       {colors.length > 0 && (
         <FilterSection title={t("Color", "ពណ៌")}>
           <div className="flex flex-wrap gap-2">
@@ -175,7 +185,6 @@ export default function Shop() {
           </div>
         </FilterSection>
       )}
-
       {sizes.length > 0 && (
         <FilterSection title={t("Size", "ទំហំ")}>
           <div className="flex flex-wrap gap-2">
@@ -185,7 +194,6 @@ export default function Shop() {
           </div>
         </FilterSection>
       )}
-
       <FilterSection title={t("Price Range", "ជួរតម្លៃ")}>
         <div className="flex items-center gap-2">
           <input type="number" placeholder={t("Min", "អប្បបរមា")} defaultValue={filters.minPrice ?? ""} onBlur={(e) => setSingle("minPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none bg-background" />
@@ -193,11 +201,9 @@ export default function Shop() {
           <input type="number" placeholder={t("Max", "អតិបរមា")} defaultValue={filters.maxPrice ?? ""} onBlur={(e) => setSingle("maxPrice", e.target.value)} className="w-full border hairline px-3 py-2 font-mono text-xs outline-none bg-background" />
         </div>
       </FilterSection>
-      
       <FilterSection title={t("Offers", "ការផ្តល់ជូន")}>
         <CheckRow active={filters.discount} onClick={() => setSingle("discount", filters.discount ? "" : "1")} label={t("On Sale Only", "កំពុងបញ្ចុះតម្លៃប៉ុណ្ណោះ")} />
       </FilterSection>
-      
       {activeCount > 0 && (
         <button onClick={clearAll} className="label-mono text-muted-foreground hover:text-foreground mt-4 underline underline-offset-4">
           {t("Clear all filters", "លុបចោលតម្រងទាំងអស់")}
