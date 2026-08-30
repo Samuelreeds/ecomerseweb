@@ -7,6 +7,7 @@ import { useLocalization } from "@/lib/localization-context";
 import ProductCard from "@/components/store/ProductCard";
 import Reveal from "@/components/store/Reveal";
 import { useSEO } from "@/hooks/useSEO";
+import { useAuth } from "@/lib/AuthContext";
 
 const SORTS = [
   { value: "newest", label: "Newest", labelKh: "ថ្មីបំផុត" },
@@ -34,6 +35,7 @@ export default function Shop() {
 
   const [params, setParams] = useSearchParams();
   const { t } = /** @type {any} */ (useLocalization());
+  const { user } = useAuth(); // Required for B2B
 
   const [all, setAll] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -68,9 +70,17 @@ export default function Shop() {
           }
         };
 
+        // B2B Pre-fetch pricing map for active approved customers
+        const activeB2B = user?.b2b_companies?.status === 'approved' ? user.b2b_companies : null;
+        let b2bMap = {};
+        if (activeB2B?.price_list_id) {
+          const { data: b2bItems } = await supabase.from('b2b_price_list_items').select('variant_id, b2b_price').eq('price_list_id', activeB2B.price_list_id);
+          b2bItems?.forEach(item => { b2bMap[item.variant_id] = item.b2b_price; });
+        }
+
         const { data: prodData } = await supabase
           .from("products")
-          .select("*, product_variants(price, discount_price, is_active)")
+          .select("*, product_variants(id, price, discount_price, is_active)")
           .neq("status", "archived")
           .order("created_at", { ascending: false })
           .limit(200);
@@ -79,10 +89,15 @@ export default function Shop() {
           const mappedProducts = prodData.map(p => {
             const activeVariants = p.product_variants?.filter((/** @type {any} */ v) => v.is_active) || [];
             if (activeVariants.length > 0) {
-              const lowestPrice = Math.min(...activeVariants.map((/** @type {any} */ v) => v.price));
+              // Apply B2B pricing override if mapped, otherwise default retail/discount
+              const prices = activeVariants.map((/** @type {any} */ v) => b2bMap[v.id] ?? v.discount_price ?? v.price);
+              const lowestPrice = Math.min(...prices);
+              
+              const isB2BOverride = prices.some((/** @type {any} */ p, /** @type {number} */ i) => b2bMap[activeVariants[i].id] !== undefined);
               const validDiscounts = activeVariants.map((/** @type {any} */ v) => v.discount_price).filter(Boolean);
-              const lowestDiscount = validDiscounts.length > 0 ? Math.min(...validDiscounts) : null;
-              return { ...p, price: lowestPrice, discount_price: lowestDiscount };
+              const lowestDiscount = isB2BOverride ? null : (validDiscounts.length > 0 ? Math.min(...validDiscounts) : null);
+              
+              return { ...p, price: lowestPrice, discount_price: lowestDiscount, b2b_applied: isB2BOverride };
             }
             return p;
           });
@@ -105,7 +120,7 @@ export default function Shop() {
     };
 
     loadData();
-  }, []);
+  }, [user]);
 
   const toggleMulti = useCallback((/** @type {string} */ key, /** @type {string} */ value) => {
     const current = params.getAll(key);

@@ -10,6 +10,7 @@ import ProductCard from "@/components/store/ProductCard";
 import Reveal from "@/components/store/Reveal";
 import { trackEvent } from "@/lib/analytics";
 import { useSEO } from "@/hooks/useSEO";
+import { useAuth } from "@/lib/AuthContext";
 
 /** @type {any} */
 const Image = BaseImage;
@@ -36,9 +37,11 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const { addItem, toggleWishlist, isInWishlist } = /** @type {any} */ (useCart());
   const { formatPrice, t = (k, d) => d, currency } = /** @type {any} */ (useLocalization() || {});
+  const { user } = useAuth(); // B2B Authorization context
 
   const [product, setProduct] = useState(/** @type {any} */ (null));
   const [selectedVariant, setSelectedVariant] = useState(/** @type {any} */ (null));
+  const [b2bPrices, setB2bPrices] = useState(/** @type {Record<string, number>} */ ({}));
   const [related, setRelated] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
   const [activeImg, setActiveImg] = useState(0);
@@ -46,9 +49,15 @@ export default function ProductDetail() {
   const [showBarcode, setShowBarcode] = useState(false);
   const [descOpen, setDescOpen] = useState(false);
 
-  // --- DYNAMIC SEO & STRUCTURED DATA (JSON-LD) ---
-  const currentPrice = selectedVariant?.discount_price ?? selectedVariant?.price ?? 0;
+  // --- DYNAMIC PRICING LOGIC ---
+  const activeB2B = user?.b2b_companies?.status === 'approved' ? user.b2b_companies : null;
+  const b2bPriceOverride = selectedVariant ? b2bPrices[selectedVariant.id] : undefined;
+  
+  const currentPrice = b2bPriceOverride ?? selectedVariant?.discount_price ?? selectedVariant?.price ?? 0;
   const stockAvailable = selectedVariant?.balances?.available ?? 0;
+  const hasDiscount = b2bPriceOverride === undefined && selectedVariant?.discount_price != null && selectedVariant.discount_price < selectedVariant.price;
+  const discountPct = hasDiscount ? Math.round((1 - selectedVariant.discount_price / selectedVariant.price) * 100) : 0;
+  
   const canonicalUrl = `${window.location.origin}/product/${product?.id}`;
   const localizedTitle = product ? t(product.name, product.name_khmer) : "Product";
 
@@ -94,6 +103,7 @@ export default function ProductDetail() {
     setActiveImg(0);
     setQty(1);
     setSelectedVariant(null);
+    setB2bPrices({});
     
     (async () => {
       try {
@@ -109,38 +119,34 @@ export default function ProductDetail() {
         }
 
         const variantIds = p.product_variants?.map((/** @type {any} */ v) => v.id) || [];
-        let balancesMap = /** @type {Record<string, any>} */ ({});
         
+        let balancesMap = /** @type {Record<string, any>} */ ({});
         if (variantIds.length > 0) {
           try {
-            const { data: balances } = await supabase
-              .from('variant_stock_balances')
-              .select('*')
-              .in('variant_id', variantIds);
-            
+            const { data: balances } = await supabase.from('variant_stock_balances').select('*').in('variant_id', variantIds);
             balances?.forEach(b => { balancesMap[b.variant_id] = b; });
-          } catch (e) {
-            console.warn("Could not fetch variant stock balances:", e);
-          }
+          } catch (e) { console.warn("Could not fetch variant stock balances:", e); }
+        }
+
+        // B2B Pricing Resolution
+        if (variantIds.length > 0 && activeB2B?.price_list_id) {
+           try {
+             const { data: b2bData } = await supabase.from('b2b_price_list_items').select('variant_id, b2b_price').eq('price_list_id', activeB2B.price_list_id).in('variant_id', variantIds);
+             const map = /** @type {Record<string, number>} */ ({});
+             b2bData?.forEach(d => { map[d.variant_id] = d.b2b_price; });
+             setB2bPrices(map);
+           } catch (e) { console.warn("Could not fetch B2B overrides:", e); }
         }
 
         let activeVariants = (p.product_variants || [])
           .filter((/** @type {any} */ v) => v.is_active)
-          .map((/** @type {any} */ v) => ({ 
-            ...v, 
-            balances: balancesMap[v.id] || { available: 0, on_hand: 0 } 
-          }));
+          .map((/** @type {any} */ v) => ({ ...v, balances: balancesMap[v.id] || { available: 0, on_hand: 0 } }));
 
         if (activeVariants.length === 0) {
           activeVariants = [{
-            id: null,
-            sku: p.code || `SKU-${p.id.slice(0, 8).toUpperCase()}`,
-            size: Array.isArray(p.sizes) ? p.sizes[0] : (p.sizes || "500ml"),
-            scent: p.color || null,
-            price: Number(p.price) || 0,
-            discount_price: p.discount ? Number(p.discount) : (p.discount_price ? Number(p.discount_price) : null),
-            balances: { available: 0, on_hand: 0 },
-            is_active: true
+            id: null, sku: p.code || `SKU-${p.id.slice(0, 8).toUpperCase()}`, size: Array.isArray(p.sizes) ? p.sizes[0] : (p.sizes || "500ml"),
+            scent: p.color || null, price: Number(p.price) || 0, discount_price: p.discount ? Number(p.discount) : (p.discount_price ? Number(p.discount_price) : null),
+            balances: { available: 0, on_hand: 0 }, is_active: true
           }];
         }
 
@@ -148,35 +154,21 @@ export default function ProductDetail() {
         setProduct(p);
         setSelectedVariant(activeVariants[0]);
         
-        const viewPrice = activeVariants[0]?.discount_price ?? activeVariants[0]?.price ?? p.price;
         trackEvent('product_view', { 
-          product_id: p.id, 
-          variant_id: activeVariants[0]?.id, 
-          value: viewPrice,
-          metadata: { sku: activeVariants[0]?.sku }
+          product_id: p.id, variant_id: activeVariants[0]?.id, value: currentPrice, metadata: { sku: activeVariants[0]?.sku }
         });
 
-        const { data: all } = await supabase
-          .from('products')
-          .select('*')
-          .neq('id', id)
-          .neq('status', 'archived')
-          .order('created_at', { ascending: false })
-          .limit(20);
+        const { data: all } = await supabase.from('products').select('*').neq('id', id).neq('status', 'archived').order('created_at', { ascending: false }).limit(20);
 
         if (all) {
-          setRelated(
-            all.filter((/** @type {any} */ x) => 
-              x.category === p.category || x.product_type === p.product_type
-            ).slice(0, 4)
-          );
+          setRelated(all.filter((/** @type {any} */ x) => x.category === p.category || x.product_type === p.product_type).slice(0, 4));
         }
       } catch (e) { 
         console.error("Error loading product detail:", e); 
       }
       setLoading(false);
     })();
-  }, [id]);
+  }, [id, user]); 
 
   if (loading) {
     return (
@@ -195,8 +187,6 @@ export default function ProductDetail() {
     );
   }
 
-  const hasDiscount = selectedVariant.discount_price != null && selectedVariant.discount_price < selectedVariant.price;
-  const discountPct = hasDiscount ? Math.round((1 - selectedVariant.discount_price / selectedVariant.price) * 100) : 0;
   const liked = isInWishlist(product.id);
   const soldOut = stockAvailable <= 0;
   const lowStock = stockAvailable > 0 && stockAvailable <= 5;
@@ -235,11 +225,7 @@ export default function ProductDetail() {
           {images.length > 1 && (
             <div className="flex md:flex-col gap-3 md:max-h-[60vh] md:overflow-y-auto no-scrollbar">
               {images.map((/** @type {any} */ img, /** @type {number} */ i) => (
-                <button
-                  key={i}
-                  onClick={() => setActiveImg(i)}
-                  className={`w-16 md:w-20 aspect-[4/5] shrink-0 overflow-hidden border ${activeImg === i ? "border-foreground" : "hairline"}`}
-                >
+                <button key={i} onClick={() => setActiveImg(i)} className={`w-16 md:w-20 aspect-[4/5] shrink-0 overflow-hidden border ${activeImg === i ? "border-foreground" : "hairline"}`}>
                   <Image src={img} alt={`${product.name} ${i + 1}`} className="w-full h-full" fittingType="fill" />
                 </button>
               ))}
@@ -257,6 +243,7 @@ export default function ProductDetail() {
             {product.is_new && <span className="label-mono border hairline px-2 py-1 bg-background">{t("New", "ថ្មី")}</span>}
             {product.is_best_seller && <span className="label-mono border hairline px-2 py-1 bg-background">{t("Best Seller", "លក់ដាច់បំផុត")}</span>}
             {hasDiscount && <span className="label-mono bg-foreground text-background px-2 py-1">−{discountPct}%</span>}
+            {b2bPriceOverride !== undefined && <span className="label-mono bg-emerald-700 text-white px-2 py-1 uppercase">{t("Wholesale Rate", "តម្លៃបោះដុំ")}</span>}
           </div>
 
           <h1 className="font-display text-3xl md:text-5xl tracking-[-0.04em] leading-[0.95]">
@@ -281,7 +268,7 @@ export default function ProductDetail() {
 
           <div className="flex items-baseline gap-3 mt-6">
             <span className="font-mono text-3xl tracking-tight text-foreground">{formatPrice(currentPrice)}</span>
-            {hasDiscount && <span className="font-mono text-lg text-muted-foreground line-through">{formatPrice(selectedVariant.price)}</span>}
+            {(hasDiscount || b2bPriceOverride !== undefined) && <span className="font-mono text-lg text-muted-foreground line-through">{formatPrice(selectedVariant.price)}</span>}
           </div>
           {hasDiscount && (
             <p className="label-mono text-destructive mt-1">
