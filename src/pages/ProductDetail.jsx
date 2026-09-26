@@ -193,7 +193,11 @@ export default function ProductDetail() {
   const images = product.images?.length ? product.images : (product.image ? [product.image] : []);
 
   const handleAdd = () => {
-    addItem(product, { 
+    // MINIMAL FIX: Override the legacy flat stock with the actual calculated ledger stock
+    // so the cart context validation knows the true maximum available quantity.
+    const productForCart = { ...product, stock: stockAvailable };
+    
+    addItem(productForCart, { 
       variant_id: selectedVariant.id,
       sku: selectedVariant.sku,
       size: selectedVariant.size || "Default", 

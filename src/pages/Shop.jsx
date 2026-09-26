@@ -35,7 +35,7 @@ export default function Shop() {
 
   const [params, setParams] = useSearchParams();
   const { t } = /** @type {any} */ (useLocalization());
-  const { user } = useAuth(); // Required for B2B
+  const { user } = useAuth(); 
 
   const [all, setAll] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -70,7 +70,6 @@ export default function Shop() {
           }
         };
 
-        // B2B Pre-fetch pricing map for active approved customers
         const activeB2B = user?.b2b_companies?.status === 'approved' ? user.b2b_companies : null;
         let b2bMap = {};
         if (activeB2B?.price_list_id) {
@@ -78,18 +77,35 @@ export default function Shop() {
           b2bItems?.forEach(item => { b2bMap[item.variant_id] = item.b2b_price; });
         }
 
-        const { data: prodData } = await supabase
+        // 1. Fetch products and their core variants (omitting the unsupported nested View)
+        const { data: prodData, error } = await supabase
           .from("products")
           .select("*, product_variants(id, price, discount_price, is_active)")
           .neq("status", "archived")
           .order("created_at", { ascending: false })
           .limit(200);
 
+        if (error) console.error("Error fetching products:", error);
+
         if (prodData) {
+          // 2. Extract all variant IDs to fetch their stock balances
+          const variantIds = prodData.flatMap(p => p.product_variants?.map((/** @type {any} */ v) => v.id) || []);
+          
+          let balancesMap = {};
+          if (variantIds.length > 0) {
+            const { data: balances } = await supabase
+              .from('variant_stock_balances')
+              .select('variant_id, available')
+              .in('variant_id', variantIds);
+            
+            balances?.forEach(b => { balancesMap[b.variant_id] = b.available; });
+          }
+
+          // 3. Map everything together
           const mappedProducts = prodData.map(p => {
             const activeVariants = p.product_variants?.filter((/** @type {any} */ v) => v.is_active) || [];
+            
             if (activeVariants.length > 0) {
-              // Apply B2B pricing override if mapped, otherwise default retail/discount
               const prices = activeVariants.map((/** @type {any} */ v) => b2bMap[v.id] ?? v.discount_price ?? v.price);
               const lowestPrice = Math.min(...prices);
               
@@ -97,10 +113,14 @@ export default function Shop() {
               const validDiscounts = activeVariants.map((/** @type {any} */ v) => v.discount_price).filter(Boolean);
               const lowestDiscount = isB2BOverride ? null : (validDiscounts.length > 0 ? Math.min(...validDiscounts) : null);
               
-              return { ...p, price: lowestPrice, discount_price: lowestDiscount, b2b_applied: isB2BOverride };
+              // Sum the fetched ledger balances for this product's variants
+              const totalStock = activeVariants.reduce((sum, v) => sum + (balancesMap[v.id] || 0), 0);
+              
+              return { ...p, price: lowestPrice, discount_price: lowestDiscount, b2b_applied: isB2BOverride, stock: totalStock };
             }
-            return p;
+            return { ...p, stock: 0 };
           });
+          
           setAll(mappedProducts);
         }
 
