@@ -8,6 +8,7 @@ import { useLocalization } from "@/lib/localization-context";
 import { supabase } from "@/lib/supabase";
 import { Image as BaseImage } from "@/components/ui/image";
 import { trackEvent, getSalesChannel } from "@/lib/analytics";
+import { captureError } from "@/lib/error-monitor";
 
 /** @type {any} */
 const Image = BaseImage;
@@ -149,6 +150,17 @@ export default function Checkout() {
       setShowQRPopup(true);
     } catch (/** @type {any} */ e) {
       console.error("Order Creation Error:", e);
+      
+      // --- INJECT ERROR MONITORING (RPC) ---
+      const finalUserId = (user && user.id) ? user.id : null;
+      captureError(e, { 
+        type: 'checkout_rpc', 
+        severity: 'critical', 
+        user_id: finalUserId,
+        cart_items_count: items.length 
+      });
+      // -------------------------------------
+
       if (e.message?.includes('orders_user_id_fkey')) {
         await supabase.auth.signOut();
         alert(t("Your session is invalid. You have been signed out.", "វគ្គរបស់អ្នកមិនត្រឹមត្រូវ។"));
@@ -193,6 +205,17 @@ export default function Checkout() {
       setDone(`MA-${createdOrder.id.slice(-8).toUpperCase()}`);
     } catch (/** @type {any} */ e) {
       console.error("Payment Submission Error:", e);
+      
+      // --- INJECT ERROR MONITORING (STORAGE) ---
+      const finalUserId = (user && user.id) ? user.id : 'guest';
+      captureError(e, { 
+        type: 'receipt_upload', 
+        severity: 'critical', 
+        user_id: finalUserId,
+        order_id: createdOrder?.id
+      });
+      // -----------------------------------------
+
       alert(e.message || t("Payment could not be submitted.", "មិនអាចបញ្ជូនការបង់ប្រាក់បានទេ។"));
     }
     setUploading(false);
@@ -254,7 +277,6 @@ export default function Checkout() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-10 grid lg:grid-cols-[1fr_400px] gap-12">
-        
         {/* Delivery Details Form */}
         <div>
           <div className="border hairline">

@@ -9,6 +9,7 @@ import Reveal from "@/components/store/Reveal";
 import { useSEO } from "@/hooks/useSEO";
 import { useAuth } from "@/lib/AuthContext";
 
+
 const SORTS = [
   { value: "newest", label: "Newest", labelKh: "ថ្មីបំផុត" },
   { value: "popular", label: "Popular", labelKh: "ពេញនិយម" },
@@ -246,7 +247,6 @@ export default function Shop() {
       )}
     </div>
   );
-
   return (
     <div className="bg-background min-h-screen">
       <div className="border-b hairline">

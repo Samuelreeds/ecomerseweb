@@ -1,28 +1,30 @@
-import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { sentryVitePlugin } from '@sentry/vite-plugin';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Upload source maps to Sentry during production builds
+    process.env.SENTRY_AUTH_TOKEN
+      ? sentryVitePlugin({
+          org: process.env.SENTRY_ORG,
+          project: process.env.SENTRY_PROJECT,
+          authToken: process.env.SENTRY_AUTH_TOKEN,
+          sourcemaps: {
+            assets: './dist/**',
+            filesToDeleteAfterUpload: ['./dist/**/*.map']
+          }
+        })
+      : null
+  ].filter(Boolean),
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+      '@': path.resolve(__dirname, './src')
+    }
   },
   build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          query: ['@tanstack/react-query'],
-          supabase: ['@supabase/supabase-js'],
-          ui: ['lucide-react']
-        }
-      }
-    }
+    sourcemap: true // Required for Sentry to un-minify production stack traces
   }
 });
