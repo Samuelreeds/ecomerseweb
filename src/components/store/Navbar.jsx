@@ -7,6 +7,9 @@ import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useQuery } from '@tanstack/react-query';
 
+// --- PHASE 4.5 NOTIFICATION IMPORT ---
+import NotificationBell from "@/components/store/NotificationBell";
+
 const NAV = [
   { label: "Home", path: "/" },
   { label: "Shop", path: "/shop" },
@@ -129,6 +132,9 @@ export default function Navbar({ onOpenSearch }) {
             <button onClick={onOpenSearch} aria-label="Search" className="hover:opacity-60 transition-opacity">
               <Search size={18} strokeWidth={1.5} />
             </button>
+
+            {/* --- NOTIFICATION BELL INJECTED HERE --- */}
+            <NotificationBell />
 
             <Link to="/account" aria-label="Account" className="hover:opacity-60 transition-opacity hidden sm:block">
               <User size={18} strokeWidth={1.5} />
