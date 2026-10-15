@@ -8,7 +8,10 @@ import { AuthProvider } from '@/lib/AuthContext';
 import ScrollToTop from './components/ScrollToTop';
 import { LocalizationProvider } from "./lib/localization-context";
 import { initGlobalErrorMonitor, AppErrorBoundary } from '@/lib/error-monitor';
+<<<<<<< HEAD
 import { NotificationProvider } from '@/lib/notification-context';
+=======
+>>>>>>> 2b14540e7c886e4f8707dfe1fc4cd82dad31dec7
 
 // Initialize global window listeners immediately outside the component
 initGlobalErrorMonitor();
@@ -47,6 +50,7 @@ export default function App() {
     <AppErrorBoundary>
       <LocalizationProvider>
         <AuthProvider>
+<<<<<<< HEAD
           <NotificationProvider>
             <QueryClientProvider client={queryClientInstance}>
               <Router>
@@ -86,6 +90,45 @@ export default function App() {
               <Toaster />
             </QueryClientProvider>
           </NotificationProvider>
+=======
+          <QueryClientProvider client={queryClientInstance}>
+            <Router>
+              <ScrollToTop />
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  {/* Auth Routes */}
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+
+                  {/* Main Public Store */}
+                  <Route element={<StoreLayout />}>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/shop" element={<Shop />} />
+                    <Route path="/product/:id" element={<ProductDetail />} />
+                    <Route path="/checkout" element={<Checkout />} />
+                    <Route path="/wishlist" element={<Wishlist />} />
+                    <Route path="/about" element={<About />} />
+                    <Route path="/contact" element={<Contact />} />
+                  </Route>
+
+                  {/* Secure Customer Account Area */}
+                  <Route path="/account" element={<AccountLayout />}>
+                    <Route index element={<AccountProfile />} />
+                    <Route path="orders" element={<AccountOrders />} />
+                    <Route path="addresses" element={<AccountAddresses />} />
+                  </Route>
+
+                  <Route path="/legal" element={<Legal />} />
+
+                  {/* 404 Fallback */}
+                  <Route path="*" element={<PageNotFound />} />
+                </Routes>
+              </Suspense>
+            </Router>
+            <Toaster />
+          </QueryClientProvider>
+>>>>>>> 2b14540e7c886e4f8707dfe1fc4cd82dad31dec7
         </AuthProvider>
       </LocalizationProvider>
     </AppErrorBoundary>

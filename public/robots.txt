@@ -1,0 +1,21 @@
+User-agent: *
+Allow: /
+Allow: /shop
+Allow: /product/
+Allow: /about
+Allow: /contact
+Allow: /legal
+
+# Protect Private & Internal Routes
+Disallow: /cart
+Disallow: /checkout
+Disallow: /account/
+Disallow: /admin/
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+
+# Prevent Indexing of Duplicate Parameter URLs
+Disallow: /*?*
+
+Sitemap: /sitemap.xml

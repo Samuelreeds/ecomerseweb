@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { Image as BaseImage } from "@/components/ui/image";
 import Reveal from "@/components/store/Reveal";
 import ProductCard from "@/components/store/ProductCard";
+import { useSEO } from "@/hooks/useSEO";
 
 /** @type {any} */
 const Image = BaseImage;
@@ -22,6 +23,20 @@ const FALLBACK_SLIDER_IMAGES = [
 ];
 
 export default function Home() {
+  // --- SEO & STRUCTURED DATA ---
+  useSEO({
+    title: "Official Store",
+    description: "Discover the latest collection from NOIR MTD. Authentic, premium beauty and skincare.",
+    canonicalUrl: window.location.origin,
+    schema: {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "NOIR MTD",
+      "url": window.location.origin,
+      "logo": `${window.location.origin}/logo.png`
+    }
+  });
+
   const [products, setProducts] = useState(/** @type {any[]} */ ([]));
   const [settings, setSettings] = useState(/** @type {any} */ (null));
   const [sliders, setSliders] = useState(/** @type {any[]} */ ([]));
@@ -43,7 +58,6 @@ export default function Home() {
           supabase.from("store_settings").select("*").eq("id", 1).single(),
           supabase.from("sliders").select("*").eq("status", true).order("ordering", { ascending: true }),
           supabase.from("categories").select("*").eq("status", true).order("ordering", { ascending: true }),
-          // Fetch the first active advertisement from the advertisements table
           supabase.from("advertisements").select("*").eq("status", "active").order("ordering", { ascending: true }).limit(1)
         ]);
 
@@ -52,18 +66,12 @@ export default function Home() {
         if (catRes.data) setDbCategories(catRes.data);
         if (adRes.data && adRes.data.length > 0) setActiveAd(adRes.data[0]);
         
-        if (settingsRes.error) console.error("Store Settings Fetch Error:", settingsRes.error);
         if (settingsRes.data) {
           setSettings(settingsRes.data);
-          
-          // Trigger Ad Modal if globally enabled AND an active ad exists AND user hasn't seen it yet this session
           if (settingsRes.data.ad_modal_enabled && adRes.data && adRes.data.length > 0 && !sessionStorage.getItem('noir_ad_seen')) {
-            setTimeout(() => {
-              setShowAdModal(true);
-            }, 2000); // 2-second delay so it's less aggressive
+            setTimeout(() => setShowAdModal(true), 2000);
           }
         }
-
       } catch (e) {
         console.error("Error loading home data:", e);
       }
@@ -80,7 +88,6 @@ export default function Home() {
   const newArrivals = products.filter((/** @type {any} */ p) => p.is_new).slice(0, 6);
   const bestSellers = products.filter((/** @type {any} */ p) => p.is_best_seller).slice(0, 6);
 
-  // --- DYNAMIC HERO VARIABLES ---
   let heroHeading = settings?.hero_heading || "WELCOME TO NOIR";
   if (heroHeading.includes("BARE") || heroHeading.includes("BEAUTY BEGINS")) heroHeading = "WELCOME TO NOIR";
   let heroSubheading = settings?.hero_subheading || "DISCOVER OUR LATEST COLLECTION.";
@@ -115,7 +122,6 @@ export default function Home() {
   return (
     <div className="bg-background">
       <section className="flex flex-col border-b hairline">
-        {/* Swipe Slider Container */}
         <div className="relative w-full h-[50vh] md:h-[65vh] overflow-hidden bg-slate-100">
           <div 
             className="flex h-full w-full transition-transform duration-700 ease-in-out"
@@ -245,11 +251,9 @@ export default function Home() {
         </section>
       )}
 
-      {/* --- DYNAMIC PROMO BANNER --- */}
       <section className="relative overflow-hidden border-y hairline">
         <div className="relative h-[60vh] md:h-[70vh]">
           <Image src={promoImage} alt="Promo Campaign" className="w-full h-full object-cover object-center" fittingType="cover" />
-          
           <div className="absolute inset-0 bg-black/40" />
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-white px-6">
             <Reveal>
@@ -290,7 +294,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* --- DYNAMIC ADVERTISEMENT MODAL (Fetched from 'advertisements' table) --- */}
       {showAdModal && activeAd && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div 
@@ -298,7 +301,6 @@ export default function Home() {
             onClick={closeAdModal} 
           />
           <div className="relative z-10 w-full max-w-[450px] bg-background shadow-2xl animate-in fade-in zoom-in-95 duration-500 overflow-hidden border hairline flex flex-col">
-            
             <button 
               onClick={closeAdModal}
               className="absolute top-4 right-4 z-20 w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/40 backdrop-blur-md text-white rounded-full transition-colors"
@@ -306,18 +308,15 @@ export default function Home() {
             >
               <X size={18} strokeWidth={2} />
             </button>
-            
             {activeAd.image && (
               <Link to={activeAd.redirect_to || '/shop'} onClick={closeAdModal} className="block w-full relative aspect-[4/3] bg-muted">
                 <Image src={activeAd.image} alt={activeAd.title || "Advertisement"} className="w-full h-full object-cover" fittingType="cover" />
               </Link>
             )}
-            
             {(activeAd.title || activeAd.subtitle || activeAd.redirect_label) && (
               <div className="p-8 text-center flex flex-col items-center justify-center bg-white">
                 {activeAd.title && <h2 className="font-display text-2xl md:text-3xl tracking-[-0.03em] uppercase mb-2">{activeAd.title}</h2>}
                 {activeAd.subtitle && <p className="text-muted-foreground text-sm mb-6">{activeAd.subtitle}</p>}
-                
                 {activeAd.redirect_label && (
                   <Link to={activeAd.redirect_to || '/shop'} onClick={closeAdModal} className="inline-block bg-black text-white px-8 py-3 label-mono text-xs uppercase tracking-widest transition-transform hover:scale-105">
                     {activeAd.redirect_label}
@@ -325,7 +324,6 @@ export default function Home() {
                 )}
               </div>
             )}
-            
           </div>
         </div>
       )}
