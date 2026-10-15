@@ -122,7 +122,8 @@ export default function Home() {
   return (
     <div className="bg-background">
       <section className="flex flex-col border-b hairline">
-        <div className="relative w-full h-[50vh] md:h-[65vh] overflow-hidden bg-slate-100">
+        {/* --- MODIFIED: aspect-[4/1] replaces h-[50vh] md:h-[65vh] --- */}
+        <div className="relative w-full aspect-[4/1] overflow-hidden bg-slate-100">
           <div 
             className="flex h-full w-full transition-transform duration-700 ease-in-out"
             style={{ transform: `translateX(-${currentSlide * 100}%)` }}

@@ -62,17 +62,23 @@ export default function NotificationBell() {
 
   if (!user) return null;
 
-  const handleNotificationClick = async (notification) => {
-    if (!notification.is_read) {
-      await markAsRead(notification.id);
-    }
+  const handleNotificationClick = (notification) => {
+    // 1. Close dropdown immediately
     setIsOpen(false);
 
-    if (notification.type === 'b2b_quote_approved') {
-      navigate('/account');
-    } else {
-      navigate('/account/orders');
+    // 2. Fire database update in the background (fire-and-forget)
+    if (!notification.is_read) {
+      markAsRead(notification.id).catch(console.error);
     }
+
+    // 3. Defer the router navigation slightly to prevent unmount conflicts
+    setTimeout(() => {
+      if (notification.type === 'b2b_quote_approved') {
+        navigate('/account');
+      } else {
+        navigate('/account/orders');
+      }
+    }, 10);
   };
 
   return (
@@ -105,7 +111,9 @@ export default function NotificationBell() {
             {unreadCount > 0 && (
               <button
                 type="button"
-                onClick={markAllAsRead}
+                onClick={() => {
+                  markAllAsRead().catch(console.error);
+                }}
                 className="label-mono text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
               >
                 <CheckCheck size={12} /> Mark all read
@@ -161,7 +169,7 @@ export default function NotificationBell() {
               type="button"
               onClick={() => {
                 setIsOpen(false);
-                navigate('/account/orders');
+                setTimeout(() => navigate('/account/orders'), 10);
               }}
               className="label-mono text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
             >

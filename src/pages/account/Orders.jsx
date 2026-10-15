@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useEffect, useState } from "react";
 import { useOutletContext, Link } from "react-router-dom";
-import { ChevronDown, Check, XCircle, Download, Camera, UploadCloud, AlertCircle, Truck, FileMinus } from "lucide-react";
+import { ChevronDown, Check, XCircle, Download, Camera, UploadCloud, AlertCircle, Truck, FileMinus, CreditCard } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Image as BaseImage } from "@/components/ui/image";
 import { useLocalization } from "@/lib/localization-context";
@@ -111,6 +111,7 @@ export default function AccountOrders() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(/** @type {string | null} */ (null));
   const [uploadingReceipt, setUploadingReceipt] = useState(/** @type {string | null} */ (null));
+  const [cancellingOrder, setCancellingOrder] = useState(/** @type {string | null} */ (null));
 
   useEffect(() => {
     (async () => {
@@ -176,6 +177,23 @@ export default function AccountOrders() {
     }
   };
 
+  const handleCancelOrder = async (/** @type {string} */ orderId) => {
+    if (!window.confirm(t("Are you sure you want to cancel this order? This action cannot be undone.", "តើអ្នកពិតជាចង់លុបចោលការបញ្ជាទិញនេះមែនទេ? សកម្មភាពនេះមិនអាចត្រឡប់វិញបានទេ។"))) return;
+    
+    setCancellingOrder(orderId);
+    try {
+      const { error } = await supabase.rpc('customer_cancel_order', { p_order_id: orderId });
+      if (error) throw error;
+
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, fulfilment_status: 'Cancelled', commercial_status: 'Cancelled' } : o));
+    } catch (err) {
+      console.error(err);
+      alert(t("Failed to cancel order. Please try again or contact support.", "ការលុបចោលបរាជ័យ។"));
+    } finally {
+      setCancellingOrder(null);
+    }
+  };
+
   if (loading) return <div className="py-16 flex justify-center"><div className="w-6 h-6 border border-foreground border-t-transparent rounded-full animate-spin" /></div>;
 
   return (
@@ -199,6 +217,7 @@ export default function AccountOrders() {
             const needsReceipt = o.payment_method === 'qr' && (o.payment_status === 'Unpaid' || o.payment_status === 'Failed');
             
             const isPaid = ['Paid', 'Refunded', 'Partially Refunded'].includes(o.payment_status);
+            const canCancel = !isCancelled && o.payment_status === 'Unpaid' && o.fulfilment_status === 'Unconfirmed';
 
             return (
               <div key={o.id}>
@@ -366,6 +385,24 @@ export default function AccountOrders() {
                           <p className="text-sm text-muted-foreground mt-1">{o.shipping_address?.address}</p>
                           <p className="text-sm text-muted-foreground">{o.shipping_address?.province}</p>
                         </div>
+                        
+                        {/* CUSTOMER CANCELLATION ACTION */}
+                        {canCancel && (
+                          <div className="pt-4 border-t hairline mt-4">
+                            <button
+                              onClick={() => handleCancelOrder(o.id)}
+                              disabled={cancellingOrder === o.id}
+                              className="w-full flex items-center justify-center gap-2 text-rose-600 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-[10px] uppercase font-bold py-2 rounded transition-colors disabled:opacity-50"
+                            >
+                              <XCircle size={14} />
+                              {cancellingOrder === o.id ? t("Cancelling...", "កំពុងលុបចោល...") : t("Cancel Order", "លុបចោលការបញ្ជាទិញ")}
+                            </button>
+                            <p className="text-[9px] text-center text-muted-foreground mt-2 leading-tight">
+                              {t("You can only cancel orders that are unpaid and unconfirmed.", "អ្នកអាចលុបចោលបានតែការបញ្ជាទិញដែលមិនទាន់បានបង់ប្រាក់និងមិនទាន់បញ្ជាក់ប៉ុណ្ណោះ។")}
+                            </p>
+                          </div>
+                        )}
+
                       </div>
                     </div>
 
